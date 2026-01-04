@@ -1,7 +1,7 @@
 {
   "name": "pino-graylog-transport",
   "version": "1.0.0",
-  "description": "Pino transport that send log to graylog",
+  "description": "Pino transport that sends log to graylog",
   "main": "lib/index.js",
   "scripts": {
     "test": "mocha test/**/*.test.js",
