@@ -8,7 +8,7 @@
  * 1. Start Graylog: docker-compose up -d
  * 2. Wait for Graylog to be ready (~30 seconds)
  * 3. Run this script: node examples/basic.js
- * 4. View logs at http://localhost:9000 (username: admin, password: admin)
+ * 4. View logs at http://localhost:9005 (username: admin, password: admin)
  */
 
 const pino = require('pino');
@@ -61,7 +61,7 @@ async function main() {
     logger.info({ iteration: i }, `Loop iteration ${i}`);
   }
 
-  console.log('\nLogs sent! Check Graylog at http://localhost:9000');
+  console.log('\nLogs sent! Check Graylog at http://localhost:9005');
   console.log('Username: admin, Password: admin');
   console.log('\nWaiting 2 seconds before closing...');
 

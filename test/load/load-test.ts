@@ -1,6 +1,7 @@
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 import { Trend, Counter, Rate } from 'k6/metrics';
+import { Options } from 'k6/options';
 
 // Custom metrics
 const logsSent = new Counter('logs_sent');
@@ -10,7 +11,7 @@ const logDuration = new Trend('log_duration');
 const successRate = new Rate('success_rate');
 
 // Test configuration
-export const options = {
+export const options: Options = {
   stages: [
     { duration: '30s', target: 10 },  // Ramp up to 10 VUs
     { duration: '1m', target: 10 },   // Stay at 10 VUs
@@ -92,5 +93,5 @@ export default function () {
 // The teardown function runs once after the test
 export function teardown() {
   console.log('Load test completed!');
-  console.log('Check Graylog UI at http://localhost:9000 to see the logs');
+  console.log('Check Graylog UI at http://localhost:9005 to see the logs');
 }

@@ -2,13 +2,22 @@
   "name": "pino-graylog-transport",
   "version": "1.0.0",
   "description": "Pino transport that sends log to graylog",
-  "main": "lib/index.js",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "scripts": {
-    "test": "mocha test/**/*.test.js",
-    "test:load": "k6 run test/load/load-test.js",
+    "build": "tsc",
+    "prepublishOnly": "npm run build",
+    "test": "mocha -r ts-node/register test/**/*.test.ts",
+    "test:load": "esbuild test/load/load-test.ts --bundle --outfile=dist/load-test.js --target=es2017 --format=esm --external:k6 --external:k6/* && (command -v k6 >/dev/null && k6 run dist/load-test.js || echo \"k6 not found. Install k6 to run load tests: https://k6.io/docs/getting-started/installation/\")",
+    "test:smoke": "esbuild test/load/smoke-test.ts --bundle --outfile=dist/smoke-test.js --target=es2017 --format=esm --external:k6 --external:k6/* && (command -v k6 >/dev/null && k6 run dist/smoke-test.js || echo \"k6 not found. Install k6 to run load tests: https://k6.io/docs/getting-started/installation/\")",
+    "benchmark": "ts-node test/benchmark/benchmark.ts",
+    "benchmark:load": "esbuild test/benchmark/comparison-load-entry.ts --bundle --outfile=dist/comparison-load-test.js --target=es2017 --format=esm --external:k6 --external:k6/* --tree-shaking=false --log-level=info && k6 run dist/comparison-load-test.js",
+    "start:comparison-server": "ts-node test/benchmark/comparison-server.ts",
+    "start:load-server": "ts-node test/load/server.ts",
     "lint": "eslint lib test",
-    "docker:up": "docker-compose up -d",
-    "docker:down": "docker-compose down"
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "docker:setup": "ts-node scripts/setup-graylog.ts"
   },
   "keywords": [
     "pino",
@@ -23,10 +32,22 @@
     "pino-abstract-transport": "^1.0.0"
   },
   "devDependencies": {
-    "eslint": "^8.0.0",
-    "mocha": "^10.0.0",
+    "@types/chai": "^5.2.3",
+    "@types/graylog2": "^0.2.5",
+    "@types/k6": "^1.4.0",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^25.0.3",
     "chai": "^4.3.0",
-    "pino": "^8.0.0"
+    "esbuild": "^0.27.2",
+    "eslint": "^8.0.0",
+    "mitata": "^1.0.34",
+    "mocha": "^10.0.0",
+    "pino": "^8.0.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3",
+    "winston": "^3.19.0",
+    "winston-graylog2": "^2.1.2",
+    "winston-transport": "^4.9.0"
   },
   "engines": {
     "node": ">=14.0.0"

@@ -1,17 +1,16 @@
 # pino-graylog-transport
 
-A Pino transport module that sends log messages to Graylog using the GELF (Graylog Extended Log Format) protocol.
+A Pino transport module that sends log messages to Graylog using the GELF (Graylog Extended Log Format) protocol over TCP or TLS.
 
 ## Features
 
 - 🚀 Full support for Pino transports API
 - 📦 GELF (Graylog Extended Log Format) message formatting
-- 🌐 UDP and TCP protocol support
-- 🗜️ Optional compression for UDP messages
+- 🔒 TLS and TCP protocol support (secure by default)
 - 🔧 Configurable facility, host, and port
 - 📊 Automatic log level conversion (Pino → Syslog)
 - 🏷️ Custom field support with GELF underscore prefix
-- ⚡ High-performance async message sending
+- ⚡ High-performance async message sending with buffering and reconnection logic
 
 ## Installation
 
@@ -25,37 +24,49 @@ npm install pino-graylog-transport pino
 const pino = require('pino');
 const transport = require('pino-graylog-transport');
 
-async function main() {
-  // Create the transport
-  const transportInstance = await transport({
-    host: 'localhost',
-    port: 12201,
-    protocol: 'udp',
-    facility: 'my-app'
-  });
+const transportInstance = transport({
+  host: 'bhs1.logs.ovh.com',
+  port: 12202,
+  protocol: 'tls',
+  facility: 'my-app',
+  staticMeta: {
+    '_X-OVH-TOKEN': 'your-token-here'
+  }
+});
 
-  // Create pino logger with the transport
-  const logger = pino(transportInstance);
+const logger = pino(transportInstance);
 
-  // Start logging!
-  logger.info('Hello Graylog!');
-  logger.error({ userId: 123 }, 'An error occurred');
-}
-
-main();
+logger.info('Hello Graylog!');
 ```
 
 ## Configuration Options
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `host` | string | `'localhost'` | Graylog server hostname |
-| `port` | number | `12201` | Graylog GELF input port |
-| `protocol` | string | `'udp'` | Protocol to use (`'udp'` or `'tcp'`) |
-| `facility` | string | `'nodejs'` | Facility name for GELF messages |
-| `graylogHost` | string | `os.hostname()` | Host field in GELF messages |
-| `compress` | boolean | `true` | Compress UDP messages with gzip |
-| `maxChunkSize` | number | `1420` | Maximum UDP packet size |
+| `host` | string | `'bhs1.logs.ovh.com'` | Graylog server hostname |
+| `port` | number | `12202` | Graylog GELF input port |
+| `protocol` | string | `'tls'` | Protocol to use (`'tcp'` or `'tls'`) |
+| `staticMeta` | object | `{}` | Static fields to include in every message (e.g. tokens) |
+| `facility` | string | `hostname` | Facility name for GELF messages |
+| `hostname` | string | `os.hostname()` | Host field in GELF messages |
+| `maxQueueSize` | number | `1000` | Max messages to queue when disconnected |
+| `onError` | function | `console.error` | Custom error handler |
+| `onReady` | function | `undefined` | Callback when connection is established |
+
+## OVH Logs Data Platform
+
+This transport is optimized for OVH Logs Data Platform but works with any Graylog instance.
+For OVH, use the default host/port and provide your token via `staticMeta`:
+
+```javascript
+const transport = require('pino-graylog-transport');
+
+const stream = transport({
+  staticMeta: {
+    '_X-OVH-TOKEN': 'your-token-here'
+  }
+});
+```
 
 ## Local Development with Docker
 
@@ -69,8 +80,14 @@ npm run docker:up
 docker-compose up -d
 ```
 
-Wait about 30 seconds for Graylog to fully start, then access the web interface at:
-- URL: http://localhost:9000
+Wait about 30 seconds for Graylog to fully start, then run the setup script to create the GELF inputs:
+
+```bash
+npm run docker:setup
+```
+
+Then access the web interface at:
+- URL: http://localhost:9005
 - Username: `admin`
 - Password: `admin`
 
@@ -79,7 +96,7 @@ Wait about 30 seconds for Graylog to fully start, then access the web interface 
 ```bash
 npm run docker:down
 # or
-docker-compose down
+docker compose down
 ```
 
 ## Usage Examples
@@ -143,7 +160,7 @@ npm run docker:up
 npm install
 node examples/basic.js
 
-# View logs at http://localhost:9000
+# View logs at http://localhost:9005
 ```
 
 ## Testing
@@ -177,14 +194,17 @@ Load tests use [k6](https://k6.io) to simulate high-volume logging scenarios.
 ```bash
 # macOS
 brew install k6
-
+```
+```bash
 # Linux
 sudo gpg -k
 sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
 echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
 sudo apt-get update
 sudo apt-get install k6
+```
 
+```bash
 # Windows
 choco install k6
 ```
@@ -195,11 +215,17 @@ choco install k6
 # Start Graylog
 npm run docker:up
 
+# Setup Graylog inputs (wait for Graylog to be ready first)
+npm run docker:setup
+
 # Start the load test server
-node test/load/server.js
+npm run start:load-server
 
 # In another terminal, run the k6 load test
 npm run test:load
+
+# Or run a quick smoke test (20 seconds)
+npm run test:smoke
 ```
 
 The load test will:
@@ -213,17 +239,22 @@ The load test will:
 ```
 pino-graylog-transport/
 ├── lib/                    # Source code
-│   ├── index.js           # Main transport entry point
-│   ├── gelf-formatter.js  # GELF message formatter
-│   └── graylog-client.js  # UDP/TCP client
+│   ├── index.ts           # Main transport entry point
+│   ├── gelf-formatter.ts  # GELF message formatter
+│   └── graylog-transport.ts # TCP/TLS transport
 ├── test/                  # Tests
 │   ├── unit/             # Unit tests
-│   │   ├── gelf-formatter.test.js
-│   │   ├── graylog-client.test.js
-│   │   └── integration.test.js
-│   └── load/             # Load tests
-│       ├── load-test.js  # k6 load test script
-│       └── server.js     # Test server for load testing
+│   │   ├── gelf-formatter.test.ts
+│   │   ├── graylog-transport.test.ts
+│   │   └── integration.test.ts
+│   ├── load/             # Load tests
+│   │   ├── load-test.ts  # k6 load test script
+│   │   ├── smoke-test.ts # k6 smoke test script
+│   │   └── server.ts     # Test server for load testing
+│   └── benchmark/        # Performance benchmarks
+│       ├── benchmark.ts            # Microbenchmark (formatting)
+│       ├── comparison-server.ts    # Server for pino vs winston test
+│       └── comparison-load-test.ts # k6 comparison load test
 ├── examples/             # Usage examples
 │   └── basic.js
 ├── docker-compose.yml    # Graylog local setup
@@ -255,6 +286,54 @@ The transport converts Pino log objects to GELF format:
 - `facility`: Application/service name
 - `_*`: Custom fields (all Pino log object properties)
 
+## Performance
+
+The GELF formatting logic is optimized for speed. Benchmarks were run using [mitata](https://github.com/evanwashere/mitata) to measure the overhead of message transformation (excluding network I/O).
+
+### Benchmark Results
+
+| Benchmark | Time | Description |
+|-----------|------|-------------|
+| JSON.stringify (Raw) | 614 ns | Baseline - just serialization, no transformation |
+| **pino-graylog-transport** | **1.87 µs** | Our GELF formatter |
+| Manual GELF Construction | 2.21 µs | Simulated naive implementation |
+
+### Key Takeaways
+
+- ✅ **18% faster** than a naive manual GELF construction approach
+- ✅ **~535,000 messages/second** theoretical formatting throughput (single-threaded)
+- ✅ **Negligible overhead**: The ~1.25 µs formatting overhead is 500-50,000x smaller than typical network latency
+
+### Run Benchmarks
+
+```bash
+# Run formatting microbenchmark (no network)
+npm run benchmark
+```
+
+### Comparison Load Test (pino vs winston)
+
+This test compares the real-world performance of `pino-graylog-transport` against `winston + graylog2`:
+
+```bash
+# Start Graylog
+npm run docker:up
+npm run docker:setup
+
+# Start the comparison server (in one terminal)
+npm run start:comparison-server
+
+# Run the comparison load test (in another terminal)
+npm run benchmark:load
+```
+
+The test runs three scenarios in parallel:
+- **Baseline**: No logging (measures pure HTTP overhead)
+- **Pino**: Using pino-graylog-transport
+- **Winston**: Using winston + graylog2
+
+Compare the `*_duration` metrics to see the logging overhead for each library.
+
 ## License
 
 ISC
@@ -262,4 +341,3 @@ ISC
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
-
