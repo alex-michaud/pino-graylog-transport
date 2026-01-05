@@ -26,28 +26,34 @@ const pinoRequests = new Counter('pino_requests')
 const winstonRequests = new Counter('winston_requests')
 
 // Test configuration
-const VUS = 100 // Aggressive load: 100 VUs per scenario (300 total)
-const DURATION = '45s'
+const VUS = 100 // 100 VUs per scenario
+const DURATION = '15s'
 
 export const options: Options = {
   scenarios: {
-    // Run all three scenarios in parallel for fair comparison
+    // Run scenarios SEQUENTIALLY to avoid interference
+    // Baseline runs first (0s-15s)
     baseline: {
       executor: 'constant-vus',
       vus: VUS,
       duration: DURATION,
+      startTime: '0s',
       exec: 'testBaseline',
     },
+    // Pino runs second (20s-35s) - 5s gap for cooldown
     pino: {
       executor: 'constant-vus',
       vus: VUS,
       duration: DURATION,
+      startTime: '20s',
       exec: 'testPino',
     },
+    // Winston runs third (40s-55s) - 5s gap for cooldown
     winston: {
       executor: 'constant-vus',
       vus: VUS,
       duration: DURATION,
+      startTime: '40s',
       exec: 'testWinston',
     },
   },
@@ -162,21 +168,22 @@ export function testWinston() {
 export function teardown() {
   console.log('')
   console.log('='.repeat(60))
-  console.log('COMPARISON LOAD TEST COMPLETED')
+  console.log('COMPARISON LOAD TEST COMPLETED (Sequential)')
   console.log('='.repeat(60))
   console.log('')
-  console.log('Compare the metrics above to see:')
-  console.log('  - baseline_duration: Response time with no logging')
-  console.log(
-    '  - pino_duration:     Response time with pino-graylog-transport',
-  )
-  console.log(
-    '  - winston_duration:  Response time with winston + winston-graylog2',
-  )
+  console.log('Tests ran sequentially to avoid interference:')
+  console.log('  1. Baseline (0s-15s): No logging')
+  console.log('  2. Pino (20s-35s): pino-graylog-transport')
+  console.log('  3. Winston (40s-55s): winston + winston-log2gelf')
   console.log('')
-  console.log('Lower duration = better performance')
+  console.log('Compare the metrics above:')
+  console.log('  - baseline_requests: throughput without logging')
+  console.log('  - pino_requests:     throughput with pino transport')
+  console.log('  - winston_requests:  throughput with winston transport')
+  console.log('')
+  console.log('Higher requests/s = better performance')
   console.log(
-    'The difference between pino/winston and baseline shows logging overhead.',
+    'Sequential testing ensures no resource contention between transports.',
   )
   console.log('')
   console.log(

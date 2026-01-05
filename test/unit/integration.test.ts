@@ -9,16 +9,41 @@ describe('Integration Tests', () => {
   ;(skipIntegration ? describe.skip : describe)(
     'Pino Graylog Transport',
     () => {
-      it('should create transport and send logs via TCP', async () => {
-        const transportInstance = transport({
+      it('should create transport and send logs via TCP', async function () {
+        // allow long enough for connection attempts in CI
+        this.timeout(5000)
+
+        const opts = {
           host: 'localhost',
           port: 12201, // Ensure your local Graylog is listening on this TCP port
           protocol: 'tcp',
           facility: 'test-app',
           staticMeta: { _env: 'test' },
+          // use non-blocking behavior for integration test to avoid hanging
+          waitForDrain: false,
+          dropWhenFull: true,
+          onReady: (success: boolean) => {},
+        }
+
+        // Promise that resolves with boolean: true if connected, false if failed or timed out
+        const readyPromise: Promise<boolean> = new Promise((resolve) => {
+          const timeout = setTimeout(() => resolve(false), 2000)
+          opts.onReady = (success: boolean) => {
+            clearTimeout(timeout)
+            resolve(Boolean(success))
+          }
         })
 
-        const logger = pino(transportInstance)
+        const transportInstance: any = transport(opts as any)
+
+        const connected = await readyPromise
+        if (!connected) {
+          // If Graylog is not reachable, skip this test instead of failing
+          this.skip()
+          return
+        }
+
+        const logger = pino({ level: 'info' }, transportInstance)
 
         // Send various log levels
         logger.info('Info message')

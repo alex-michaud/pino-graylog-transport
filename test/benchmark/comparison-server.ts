@@ -20,13 +20,17 @@ const port = Number.parseInt(args[0] || '3001', 10)
 const graylogHost = args[1] || 'localhost'
 const graylogPort = Number.parseInt(args[2] || '12201', 10)
 
-// Setup Pino with our transport
+// Setup Pino with our transport (in-process for consistent benchmarks)
 const pinoTransport = transport({
   host: graylogHost,
   port: graylogPort,
   protocol: 'tcp',
   facility: 'pino-benchmark',
   staticMeta: { benchmark: 'pino' }, // Note: no underscore - GELF formatter adds it
+  // Match Winston's fire-and-forget behavior for fair comparison
+  waitForDrain: false,
+  dropWhenFull: true,
+  maxQueueSize: 10000,
 })
 
 const pinoLogger = pino({ level: 'info' }, pinoTransport)
@@ -60,7 +64,9 @@ try {
     console.log('✓ Winston connected to Graylog')
   })
 
-  console.log(`Winston transport configured: tcp://${graylogHost}:${graylogPort}`)
+  console.log(
+    `Winston transport configured: tcp://${graylogHost}:${graylogPort}`,
+  )
   winstonStatus = 'connected (winston-log2gelf)'
 } catch (err: unknown) {
   winstonStatus = 'fallback (Console)'

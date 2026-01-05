@@ -14,6 +14,10 @@ type GraylogTransportOpts = {
   onError?: (error: Error, context?: Record<string, unknown>) => void
   onReady?: (success: boolean, error?: Error) => void
   maxQueueSize?: number
+  // New options
+  waitForDrain?: boolean // if true, wait for socket 'drain' before signaling write completion
+  dropWhenFull?: boolean // if true, drop new messages when internal queue is full; otherwise drop oldest
+  autoConnect?: boolean // if false, do not attempt to connect automatically in constructor
 }
 
 /**
@@ -34,6 +38,8 @@ export class GraylogWritable extends Writable {
   private readonly hostname: string
   private readonly facility: string
   private readonly maxQueueSize: number
+  private readonly waitForDrain: boolean
+  private readonly dropWhenFull: boolean
   private readonly handleError: (
     error: Error,
     context?: Record<string, unknown>,
@@ -50,6 +56,8 @@ export class GraylogWritable extends Writable {
     this.hostname = opts.hostname ?? os.hostname()
     this.facility = opts.facility ?? this.hostname
     this.maxQueueSize = opts.maxQueueSize ?? 1000
+    this.waitForDrain = opts.waitForDrain === undefined ? true : Boolean(opts.waitForDrain)
+    this.dropWhenFull = opts.dropWhenFull === undefined ? false : Boolean(opts.dropWhenFull)
     this.handleError =
       opts.onError ??
       ((error: Error, context?: Record<string, unknown>) => {
@@ -57,19 +65,21 @@ export class GraylogWritable extends Writable {
       })
     this.onReady = opts.onReady
 
-    // Establish initial connection
-    this.connect()
-      .then(() => {
-        // Connection successful
-      })
-      .catch((err) => {
-        this.handleError(err, { reason: 'Initial Graylog connection failed' })
-        if (!this.initializationAttempted && this.onReady) {
-          this.initializationAttempted = true
-          this.onReady(false, err)
-        }
-        this.ready = false
-      })
+    // Establish initial connection unless explicitly disabled
+    if (opts.autoConnect !== false) {
+      this.connect()
+        .then(() => {
+          // Connection successful
+        })
+        .catch((err) => {
+          this.handleError(err, { reason: 'Initial Graylog connection failed' })
+          if (!this.initializationAttempted && this.onReady) {
+            this.initializationAttempted = true
+            this.onReady(false, err)
+          }
+          this.ready = false
+        })
+    }
   }
 
   // --- Public status methods ---
@@ -101,40 +111,64 @@ export class GraylogWritable extends Writable {
     _encoding: BufferEncoding,
     callback: (error?: Error | null) => void,
   ): void {
-    const messageStr = formatGelfMessage(
+    const gelfStr = formatGelfMessage(
       chunk,
       this.hostname,
       this.facility,
       this.staticMeta,
     )
 
-    // GELF over TCP requires null byte terminator
-    const messageWithTerminator = messageStr + '\0'
+    const socket = this.socket
 
-    if (this.socket && !this.socket.destroyed) {
-      if (this.socket.write(messageWithTerminator)) {
-        callback()
+    if (socket && !socket.destroyed) {
+      // GELF over TCP requires null byte terminator
+      const success = socket.write(gelfStr + '\0')
+
+      if (this.waitForDrain && !success) {
+        // Socket buffer full, wait for drain
+        socket.once('drain', callback)
       } else {
-        this.socket.once('drain', callback)
+        // Either fire-and-forget or buffer not full
+        callback()
       }
     } else {
-      // Queue message if not connected
-      if (this.messageQueue.length >= this.maxQueueSize) {
-        this.messageQueue.shift()
-        this.droppedMessageCount++
-
-        if (this.droppedMessageCount % 100 === 1) {
-          this.handleError(new Error('Graylog message queue overflow'), {
-            reason: 'Queue at max capacity, dropping oldest messages',
-            queueSize: this.maxQueueSize,
-            droppedCount: this.droppedMessageCount,
-          })
+      // Queue message if not connected - store with terminator
+      const queueLen = this.messageQueue.length
+      if (queueLen >= this.maxQueueSize) {
+        if (this.dropWhenFull) {
+          // Drop incoming message
+          this.droppedMessageCount++
+          if (this.droppedMessageCount % 100 === 1) {
+            this.handleError(
+              new Error('Graylog message dropped due to full queue'),
+              {
+                reason: 'Queue full, dropWhenFull=true',
+                queueSize: this.maxQueueSize,
+                droppedCount: this.droppedMessageCount,
+              },
+            )
+          }
+          callback()
+          return
+        } else {
+          // Drop oldest to make room (FIFO) - shift is O(n) but rare in connected state
+          this.messageQueue.shift()
+          this.droppedMessageCount++
+          if (this.droppedMessageCount % 100 === 1) {
+            this.handleError(new Error('Graylog message queue overflow'), {
+              reason: 'Queue at max capacity, dropping oldest messages',
+              queueSize: this.maxQueueSize,
+              droppedCount: this.droppedMessageCount,
+            })
+          }
         }
       }
 
-      this.messageQueue.push(messageWithTerminator)
+      this.messageQueue.push(gelfStr + '\0')
       this.connect().catch((err) => {
-        this.handleError(err, { reason: 'Failed to connect while sending message' })
+        this.handleError(err, {
+          reason: 'Failed to connect while sending message',
+        })
       })
       callback()
     }
@@ -171,7 +205,10 @@ export class GraylogWritable extends Writable {
     this.connectionPromise = new Promise<net.Socket>((resolve, reject) => {
       const connectionTimeout = setTimeout(() => {
         const timeoutError = new Error('Graylog connection timeout')
-        newSocket.destroy()
+        try {
+          // newSocket may not be assigned yet
+          if (typeof newSocket !== 'undefined' && newSocket) newSocket.destroy()
+        } catch (e) {}
         this.socket = null
         this.connectionPromise = null
         reject(timeoutError)
