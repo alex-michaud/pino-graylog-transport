@@ -1,7 +1,8 @@
 services:
   # MongoDB - Required by Graylog
   mongodb:
-    image: mongo:6.0
+    # Graylog 7 requires MongoDB 7.x or newer
+    image: mongo:7.0
     container_name: graylog-mongodb
     environment:
       MONGO_INITDB_ROOT_USERNAME: admin
@@ -36,7 +37,7 @@ services:
 
   # Graylog
   graylog:
-    image: graylog/graylog:5.2
+    image: graylog/graylog:7.0.1
     container_name: graylog
     environment:
       # CHANGE ME (must be at least 16 characters)!

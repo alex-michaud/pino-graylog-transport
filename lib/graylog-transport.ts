@@ -1,7 +1,7 @@
-import { Writable } from 'node:stream'
-import tls from 'node:tls'
 import net from 'node:net'
 import os from 'node:os'
+import { Writable } from 'node:stream'
+import tls from 'node:tls'
 import { formatGelfMessage } from './gelf-formatter'
 
 type GraylogTransportOpts = {
@@ -11,258 +11,245 @@ type GraylogTransportOpts = {
   staticMeta?: Record<string, unknown>
   facility?: string
   hostname?: string
-  onError?: (error: Error, context?: Record<string, unknown>) => void // Optional error handler
-  onReady?: (success: boolean, error?: Error) => void // Optional ready/failed callback
-  maxQueueSize?: number // Maximum number of messages to queue (default: 1000)
+  onError?: (error: Error, context?: Record<string, unknown>) => void
+  onReady?: (success: boolean, error?: Error) => void
+  maxQueueSize?: number
 }
 
 /**
- * Custom Pino transport for Graylog.
- *
- * Establishes a persistent TCP or TLS connection to the Graylog endpoint and
- * sends log entries in GELF 1.1 format. If the connection is not yet
- * established or is temporarily unavailable, log messages are queued in
- * memory and flushed once the connection is (re)established.
- *
- * To prevent unbounded memory growth, the queue has a maximum size (default: 1000).
- * When the queue is full, the oldest messages are dropped (FIFO). Dropped message
- * count is tracked and warnings are emitted periodically.
- *
- * OVH requires:
- * - TLS connection (not plain TCP/UDP)
- * - Port 12202 for GELF over TLS
- * - X-OVH-TOKEN in the GELF message
- * - Null byte terminator for each message
- * - GELF 1.1 format
- *
- * @param {GraylogTransportOpts} opts Options for configuring the Graylog transport.
- * @param {string} [opts.host] Graylog host to connect to. Defaults to the OVH Logs Data Platform host.
- * @param {number} [opts.port] Graylog port. Defaults to 12202 (GELF over TLS for OVH).
- * @param {Record<string, unknown>} [opts.staticMeta] Static fields to include in every GELF message.
- * @param {string} [opts.facility] GELF facility value identifying this application/service.
- * @param {string} [opts.hostname] Hostname to include in GELF messages. Defaults to the OS hostname.
- * @param {number} [opts.maxQueueSize] Maximum number of messages to queue before dropping oldest. Defaults to 1000.
- * @param {Function} [opts.onError] Custom error handler callback. Defaults to console.error.
- * @param {Function} [opts.onReady] Callback invoked once when connection succeeds or fails initially.
- * @returns {Writable} A Node.js Writable stream compatible with Pino's transport interface.
+ * A Writable stream that sends logs to Graylog and exposes status methods.
  */
-export default function graylogTransport(opts: GraylogTransportOpts): Writable {
-  const host = opts.host ?? 'bhs1.logs.ovh.com'
-  const port = opts.port ?? 12202 // Default to OVH GELF over TLS port
-  const protocol = opts.protocol ?? 'tls'
-  const staticMeta = opts.staticMeta ?? {}
-  const hostname = opts.hostname ?? os.hostname()
-  const facility = opts.facility ?? hostname // Use hostname as facility if not provided
-  const maxQueueSize = opts.maxQueueSize ?? 1000 // Default: queue max 1000 messages
-  const onError =
-    opts.onError ??
-    ((error: Error, context?: Record<string, unknown>) => {
-      // Default error handler: log to console
-      // This can be overridden by passing a custom onError callback
-      console.error('Graylog transport error:', error.message, context || {})
-    })
-  const onReady = opts.onReady // Optional ready callback
+export class GraylogWritable extends Writable {
+  private socket: net.Socket | null = null
+  private connectionPromise: Promise<net.Socket> | null = null
+  private messageQueue: string[] = []
+  private initializationAttempted = false
+  private ready = false
+  private droppedMessageCount = 0
 
-  // Connection state
-  let socket: net.Socket | null = null
-  let connectionPromise: Promise<net.Socket> | null = null
-  let messageQueue: string[] = []
-  let initializationAttempted = false
-  let isReady = false
-  let droppedMessageCount = 0 // Track how many messages were dropped due to queue overflow
+  private readonly host: string
+  private readonly port: number
+  private readonly protocol: 'tcp' | 'tls'
+  private readonly staticMeta: Record<string, unknown>
+  private readonly hostname: string
+  private readonly facility: string
+  private readonly maxQueueSize: number
+  private readonly handleError: (
+    error: Error,
+    context?: Record<string, unknown>,
+  ) => void
+  private readonly onReady?: (success: boolean, error?: Error) => void
 
-  // Helper function to handle errors consistently
-  const handleError = (error: Error, context?: Record<string, unknown>) => {
-    onError(error, context)
+  constructor(opts: GraylogTransportOpts) {
+    super({ objectMode: true })
+
+    this.host = opts.host ?? 'bhs1.logs.ovh.com'
+    this.port = opts.port ?? 12202
+    this.protocol = opts.protocol ?? 'tls'
+    this.staticMeta = opts.staticMeta ?? {}
+    this.hostname = opts.hostname ?? os.hostname()
+    this.facility = opts.facility ?? this.hostname
+    this.maxQueueSize = opts.maxQueueSize ?? 1000
+    this.handleError =
+      opts.onError ??
+      ((error: Error, context?: Record<string, unknown>) => {
+        console.error('Graylog transport error:', error.message, context || {})
+      })
+    this.onReady = opts.onReady
+
+    // Establish initial connection
+    this.connect()
+      .then(() => {
+        // Connection successful
+      })
+      .catch((err) => {
+        this.handleError(err, { reason: 'Initial Graylog connection failed' })
+        if (!this.initializationAttempted && this.onReady) {
+          this.initializationAttempted = true
+          this.onReady(false, err)
+        }
+        this.ready = false
+      })
   }
 
+  // --- Public status methods ---
 
-  const connect = (): Promise<net.Socket> => {
-    // If already connected, return the existing socket
-    if (socket && !socket.destroyed) {
-      return Promise.resolve(socket)
+  isReady(): boolean {
+    return this.ready
+  }
+
+  getQueueSize(): number {
+    return this.messageQueue.length
+  }
+
+  isConnected(): boolean {
+    return this.socket !== null && !this.socket.destroyed
+  }
+
+  getDroppedMessageCount(): number {
+    return this.droppedMessageCount
+  }
+
+  getMaxQueueSize(): number {
+    return this.maxQueueSize
+  }
+
+  // --- Writable implementation ---
+
+  override _write(
+    chunk: unknown,
+    _encoding: BufferEncoding,
+    callback: (error?: Error | null) => void,
+  ): void {
+    const messageStr = formatGelfMessage(
+      chunk,
+      this.hostname,
+      this.facility,
+      this.staticMeta,
+    )
+
+    // GELF over TCP requires null byte terminator
+    const messageWithTerminator = messageStr + '\0'
+
+    if (this.socket && !this.socket.destroyed) {
+      if (this.socket.write(messageWithTerminator)) {
+        callback()
+      } else {
+        this.socket.once('drain', callback)
+      }
+    } else {
+      // Queue message if not connected
+      if (this.messageQueue.length >= this.maxQueueSize) {
+        this.messageQueue.shift()
+        this.droppedMessageCount++
+
+        if (this.droppedMessageCount % 100 === 1) {
+          this.handleError(new Error('Graylog message queue overflow'), {
+            reason: 'Queue at max capacity, dropping oldest messages',
+            queueSize: this.maxQueueSize,
+            droppedCount: this.droppedMessageCount,
+          })
+        }
+      }
+
+      this.messageQueue.push(messageWithTerminator)
+      this.connect().catch((err) => {
+        this.handleError(err, { reason: 'Failed to connect while sending message' })
+      })
+      callback()
+    }
+  }
+
+  override _final(callback: (error?: Error | null) => void): void {
+    if (this.socket && !this.socket.destroyed) {
+      this.socket.end()
+    }
+    callback()
+  }
+
+  override _destroy(
+    error: Error | null,
+    callback: (error?: Error | null) => void,
+  ): void {
+    if (this.socket && !this.socket.destroyed) {
+      this.socket.destroy()
+    }
+    callback(error)
+  }
+
+  // --- Private methods ---
+
+  private connect(): Promise<net.Socket> {
+    if (this.socket && !this.socket.destroyed) {
+      return Promise.resolve(this.socket)
     }
 
-    // If connection is in progress, return the existing promise
-    // This prevents race conditions where multiple concurrent calls
-    // try to create connections before any of them completes
-    if (connectionPromise) {
-      return connectionPromise
+    if (this.connectionPromise) {
+      return this.connectionPromise
     }
 
-    // Immediately create and assign the promise to prevent race conditions
-    // Any subsequent calls will see connectionPromise !== null and return it
-    connectionPromise = new Promise<net.Socket>((resolve, reject) => {
-      // Set timeout for connection attempt (10 seconds)
+    this.connectionPromise = new Promise<net.Socket>((resolve, reject) => {
       const connectionTimeout = setTimeout(() => {
         const timeoutError = new Error('Graylog connection timeout')
         newSocket.destroy()
-        socket = null
-        connectionPromise = null
+        this.socket = null
+        this.connectionPromise = null
         reject(timeoutError)
       }, 10000)
 
       const onConnect = () => {
-        // Clear the connection timeout on successful connection
         clearTimeout(connectionTimeout)
+        this.socket = newSocket
+        this.ready = true
 
-        socket = newSocket
-        isReady = true
-
-        // Notify that transport is ready (only on first successful connection)
-        if (!initializationAttempted && onReady) {
-          initializationAttempted = true
-          onReady(true)
+        if (!this.initializationAttempted && this.onReady) {
+          this.initializationAttempted = true
+          this.onReady(true)
         }
 
         // Flush queued messages
-        const messagesToFlush = [...messageQueue]
-        messageQueue = []
-
+        const messagesToFlush = [...this.messageQueue]
+        this.messageQueue = []
         for (const msg of messagesToFlush) {
-          if (socket && !socket.destroyed) {
-            socket.write(msg)
+          if (this.socket && !this.socket.destroyed) {
+            this.socket.write(msg)
           }
         }
 
-        // Clear connectionPromise AFTER flushing to prevent race
-        connectionPromise = null
+        this.connectionPromise = null
         resolve(newSocket)
       }
 
       let newSocket: net.Socket
-      if (protocol === 'tcp') {
-        newSocket = net.createConnection({ host, port }, onConnect)
+      if (this.protocol === 'tcp') {
+        newSocket = net.createConnection(
+          { host: this.host, port: this.port },
+          onConnect,
+        )
       } else {
         newSocket = tls.connect(
-          {
-            host,
-            port,
-            rejectUnauthorized: true, // Verify OVH's certificate
-          },
+          { host: this.host, port: this.port, rejectUnauthorized: true },
           onConnect,
         )
       }
 
+      // OPTIMIZATIONS
+      newSocket.setNoDelay(true)
+      newSocket.setKeepAlive(true)
+
       newSocket.on('error', (err: Error) => {
-        // Clear timeout on error
         clearTimeout(connectionTimeout)
-        handleError(err, { host, port, reason: `${protocol.toUpperCase()} connection error` })
-        socket = null
-        connectionPromise = null
+        this.handleError(err, {
+          host: this.host,
+          port: this.port,
+          reason: `${this.protocol.toUpperCase()} connection error`,
+        })
+        this.socket = null
+        this.connectionPromise = null
         reject(err)
       })
 
       newSocket.on('close', () => {
-        // Clear timeout if socket closes
         clearTimeout(connectionTimeout)
-        socket = null
-        // Only clear connectionPromise if this is the current connection
-        // Prevents race where a new connection starts before close event fires
-        if (connectionPromise) {
-          connectionPromise = null
+        this.socket = null
+        if (this.connectionPromise) {
+          this.connectionPromise = null
         }
       })
     })
 
-    return connectionPromise
+    return this.connectionPromise
   }
+}
 
-  const sendMessage = (gelfMessage: string) => {
-    // GELF over TCP requires null byte terminator
-    const messageWithTerminator = gelfMessage + '\0'
-
-    if (socket && !socket.destroyed) {
-      socket.write(messageWithTerminator)
-    } else {
-      // Queue message if not connected
-      // Check if queue is at capacity
-      if (messageQueue.length >= maxQueueSize) {
-        // Drop oldest message (FIFO) to make room
-        messageQueue.shift()
-        droppedMessageCount++
-
-        // Warn about dropped messages (but only occasionally to avoid spam)
-        if (droppedMessageCount % 100 === 1) {
-          handleError(
-            new Error('Graylog message queue overflow'),
-            {
-              reason: 'Queue at max capacity, dropping oldest messages',
-              queueSize: maxQueueSize,
-              droppedCount: droppedMessageCount,
-            }
-          )
-        }
-      }
-
-      messageQueue.push(messageWithTerminator)
-
-      // Attempt to connect
-      connect().catch((err) => {
-        handleError(err, { reason: 'Failed to connect while sending message' })
-      })
-    }
-  }
-
-  // Establish initial connection
-  connect()
-    .then(() => {
-      // Connection successful - isReady flag already set in connect()
-    })
-    .catch((err) => {
-      handleError(err, { reason: 'Initial Graylog connection failed' })
-
-      // Notify that transport initialization failed
-      if (!initializationAttempted && onReady) {
-        initializationAttempted = true
-        onReady(false, err)
-      }
-
-      // Mark as not ready - messages will queue until connection succeeds
-      isReady = false
-    })
-
-  const writableStream = new Writable({
-    objectMode: true,
-    write(chunk: unknown, _enc: BufferEncoding, cb: () => void) {
-      try {
-        const gelfMessage = formatGelfMessage(chunk, hostname, facility, staticMeta)
-        sendMessage(gelfMessage)
-      } catch (err) {
-        handleError(err instanceof Error ? err : new Error(String(err)), {
-          reason: 'Failed to process log entry',
-          chunk: typeof chunk === 'string' ? chunk : '[Buffer or Object]',
-        })
-      } finally {
-        cb()
-      }
-    },
-
-    final(cb: (error?: Error | null) => void) {
-      // Close socket on stream end
-      if (socket && !socket.destroyed) {
-        socket.end()
-      }
-      cb()
-    },
-
-    destroy(err: Error | null, cb: (error?: Error | null) => void) {
-      if (socket && !socket.destroyed) {
-        socket.destroy()
-      }
-      cb(err)
-    },
-  })
-
-  // Expose utility methods for checking transport status
-  // These can be used by the parent logger to monitor health
-  Object.assign(writableStream, {
-    isReady: () => isReady,
-    getQueueSize: () => messageQueue.length,
-    isConnected: () => socket !== null && !socket.destroyed,
-    getDroppedMessageCount: () => droppedMessageCount,
-    getMaxQueueSize: () => maxQueueSize,
-  })
-
-  return writableStream
+/**
+ * Factory function for creating a GraylogWritable transport.
+ *
+ * @param opts Options for configuring the Graylog transport.
+ * @returns A GraylogWritable stream compatible with Pino's transport interface.
+ */
+export default function graylogTransport(
+  opts: GraylogTransportOpts = {},
+): GraylogWritable {
+  return new GraylogWritable(opts)
 }

@@ -11,9 +11,9 @@ import transport from '../../lib/index'
 
 // Parse command line arguments
 const args = process.argv.slice(2)
-const port = parseInt(args[0] || '3000', 10)
+const port = Number.parseInt(args[0] || '3000', 10)
 const graylogHost = args[1] || 'localhost'
-const graylogPort = parseInt(args[2] || '12201', 10)
+const graylogPort = Number.parseInt(args[2] || '12201', 10)
 const protocol = (args[3] || 'tcp') as 'tcp' | 'tls'
 
 let logger: pino.Logger
@@ -26,7 +26,7 @@ async function startServer() {
       port: graylogPort,
       protocol: protocol,
       facility: 'load-test-app',
-      staticMeta: { _env: 'load-test' }
+      staticMeta: { _env: 'load-test' },
     })
 
     // Create pino logger with the transport
@@ -43,7 +43,7 @@ async function startServer() {
       if (req.method === 'POST' && req.url === '/log') {
         let body = ''
 
-        req.on('data', chunk => {
+        req.on('data', (chunk) => {
           body += chunk.toString()
         })
 
@@ -56,9 +56,15 @@ async function startServer() {
 
             // Log based on level
             if (logger[level]) {
-                logger[level]({ ...metadata, requestId: generateRequestId() }, message)
+              logger[level](
+                { ...metadata, requestId: generateRequestId() },
+                message,
+              )
             } else {
-                logger.info({ ...metadata, requestId: generateRequestId() }, message)
+              logger.info(
+                { ...metadata, requestId: generateRequestId() },
+                message,
+              )
             }
 
             res.writeHead(200, { 'Content-Type': 'application/json' })
@@ -103,4 +109,3 @@ function generateRequestId() {
 }
 
 startServer()
-

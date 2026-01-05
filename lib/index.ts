@@ -1,3 +1,3 @@
-import graylogTransport from './graylog-transport'
-export = graylogTransport
-
+import graylogTransport, { GraylogWritable } from './graylog-transport'
+export { GraylogWritable }
+export default graylogTransport

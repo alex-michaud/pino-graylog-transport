@@ -313,7 +313,7 @@ npm run benchmark
 
 ### Comparison Load Test (pino vs winston)
 
-This test compares the real-world performance of `pino-graylog-transport` against `winston + graylog2`:
+This test compares the real-world performance of `pino-graylog-transport` against `winston + winston-log2gelf`:
 
 ```bash
 # Start Graylog
@@ -330,7 +330,7 @@ npm run benchmark:load
 The test runs three scenarios in parallel:
 - **Baseline**: No logging (measures pure HTTP overhead)
 - **Pino**: Using pino-graylog-transport
-- **Winston**: Using winston + graylog2
+- **Winston**: Using winston + winston-log2gelf
 
 Compare the `*_duration` metrics to see the logging overhead for each library.
 

@@ -1,22 +1,23 @@
+import { Writable } from 'node:stream'
 import { expect } from 'chai'
-import graylogTransport from '../../lib/graylog-transport'
-import { Writable } from 'stream'
+import graylogTransport, { GraylogWritable } from '../../lib/graylog-transport'
 
 describe('Graylog Transport', () => {
   it('should create a writable stream', () => {
     const stream = graylogTransport({
       host: 'localhost',
       port: 12201,
-      staticMeta: { token: 'test' }
+      staticMeta: { token: 'test' },
     })
 
     expect(stream).to.be.instanceOf(Writable)
+    expect(stream).to.be.instanceOf(GraylogWritable)
   })
 
   it('should use default options', () => {
     const stream = graylogTransport({
-      staticMeta: { token: 'test' }
-    }) as any
+      staticMeta: { token: 'test' },
+    })
 
     // Accessing internal state via exposed methods or properties if available
     // Since we don't expose host/port directly on the stream instance,
@@ -31,16 +32,16 @@ describe('Graylog Transport', () => {
       host: 'custom-host',
       port: 12345,
       maxQueueSize: 500,
-      staticMeta: { token: 'test' }
-    }) as any
+      staticMeta: { token: 'test' },
+    })
 
     expect(stream.getMaxQueueSize()).to.equal(500)
   })
 
   it('should expose status methods', () => {
     const stream = graylogTransport({
-      staticMeta: { token: 'test' }
-    }) as any
+      staticMeta: { token: 'test' },
+    })
 
     expect(stream.isReady).to.be.a('function')
     expect(stream.getQueueSize).to.be.a('function')
@@ -48,4 +49,3 @@ describe('Graylog Transport', () => {
     expect(stream.getDroppedMessageCount).to.be.a('function')
   })
 })
-

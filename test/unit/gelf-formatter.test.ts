@@ -38,7 +38,7 @@ describe('GELF Formatter', () => {
         time: 1704408000000,
         msg: 'Test message',
         pid: 1234,
-        hostname: 'original-host'
+        hostname: 'original-host',
       }
 
       const gelfString = formatGelfMessage(pinoLog, hostname, facility)
@@ -56,7 +56,7 @@ describe('GELF Formatter', () => {
     it('should use default message when msg is missing', () => {
       const pinoLog = {
         level: 30,
-        time: 1704408000000
+        time: 1704408000000,
       }
 
       const gelfString = formatGelfMessage(pinoLog, hostname, facility)
@@ -70,13 +70,16 @@ describe('GELF Formatter', () => {
         level: 50,
         time: 1704408000000,
         msg: 'Error occurred',
-        stack: 'Error: Something went wrong\n    at test.js:10:15'
+        stack: 'Error: Something went wrong\n    at test.js:10:15',
       }
 
       const gelfString = formatGelfMessage(pinoLog, hostname, facility)
       const gelf = JSON.parse(gelfString)
 
-      expect(gelf).to.have.property('full_message', 'Error: Something went wrong\n    at test.js:10:15')
+      expect(gelf).to.have.property(
+        'full_message',
+        'Error: Something went wrong\n    at test.js:10:15',
+      )
     })
 
     it('should add custom fields with underscore prefix', () => {
@@ -85,7 +88,7 @@ describe('GELF Formatter', () => {
         time: 1704408000000,
         msg: 'Test message',
         userId: '12345',
-        requestId: 'abc-def-ghi'
+        requestId: 'abc-def-ghi',
       }
 
       const gelfString = formatGelfMessage(pinoLog, hostname, facility)
@@ -100,7 +103,7 @@ describe('GELF Formatter', () => {
         level: 30,
         time: 1704408000000,
         msg: 'Test message',
-        user: { id: 123, name: 'John' }
+        user: { id: 123, name: 'John' },
       }
 
       const gelfString = formatGelfMessage(pinoLog, hostname, facility)
@@ -112,15 +115,19 @@ describe('GELF Formatter', () => {
     it('should include static metadata', () => {
       const pinoLog = {
         level: 30,
-        msg: 'Test'
+        msg: 'Test',
       }
       const staticMeta = { '_X-OVH-TOKEN': 'secret' }
 
-      const gelfString = formatGelfMessage(pinoLog, hostname, facility, staticMeta)
+      const gelfString = formatGelfMessage(
+        pinoLog,
+        hostname,
+        facility,
+        staticMeta,
+      )
       const gelf = JSON.parse(gelfString)
 
       expect(gelf).to.have.property('_X-OVH-TOKEN', 'secret')
     })
   })
 })
-

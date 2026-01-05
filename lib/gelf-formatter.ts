@@ -1,5 +1,3 @@
-import os from 'node:os'
-
 export interface GelfMessage {
   version: '1.1'
   host: string
@@ -27,7 +25,7 @@ export function formatGelfMessage(
   chunk: unknown,
   hostname: string,
   facility: string,
-  staticMeta: Record<string, unknown> = {}
+  staticMeta: Record<string, unknown> = {},
 ): string {
   // Parse the log object - it might come as a string or object
   let obj: Record<string, unknown>
@@ -63,7 +61,18 @@ export function formatGelfMessage(
     timestamp: obj.time ? (obj.time as number) / 1000 : Date.now() / 1000,
     level: mapPinoLevelToGelf(obj.level as number),
     _facility: facility,
-    ...staticMeta,
+  }
+
+  // Add static metadata with underscore prefix (GELF custom field requirement)
+  for (const [key, value] of Object.entries(staticMeta)) {
+    if (value !== undefined && value !== null) {
+      const fieldName = key.startsWith('_') ? key : `_${key}`
+      if (typeof value === 'object') {
+        gelfMessage[fieldName] = JSON.stringify(value)
+      } else {
+        gelfMessage[fieldName] = value
+      }
+    }
   }
 
   // Add full_message if there's a stack trace
@@ -74,7 +83,8 @@ export function formatGelfMessage(
     typeof obj.err === 'object' &&
     (obj.err as Record<string, unknown>).stack
   ) {
-    gelfMessage.full_message = (obj.err as Record<string, unknown>).stack as string
+    gelfMessage.full_message = (obj.err as Record<string, unknown>)
+      .stack as string
   }
 
   // Add all other fields as GELF custom fields (prefixed with _)
@@ -91,12 +101,16 @@ export function formatGelfMessage(
   ]
 
   for (const [key, value] of Object.entries(obj)) {
-    if (!excludedFields.includes(key) && value !== undefined && value !== null) {
+    if (
+      !excludedFields.includes(key) &&
+      value !== undefined &&
+      value !== null
+    ) {
       // GELF custom fields must start with underscore
       const fieldName = key.startsWith('_') ? key : `_${key}`
 
       // Avoid overwriting standard fields or static meta
-      if (fieldName in gelfMessage) continue;
+      if (fieldName in gelfMessage) continue
 
       // GELF doesn't support nested objects well, stringify them
       if (typeof value === 'object') {
@@ -114,4 +128,3 @@ export function formatGelfMessage(
 
   return JSON.stringify(gelfMessage)
 }
-

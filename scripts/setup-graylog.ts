@@ -14,9 +14,9 @@ const inputs = [
       recv_buffer_size: 1048576,
       use_null_delimiter: true,
       max_message_size: 2097152,
-      tls_enable: false
+      tls_enable: false,
     },
-    global: true
+    global: true,
   },
   {
     title: 'GELF UDP',
@@ -25,10 +25,10 @@ const inputs = [
       bind_address: '0.0.0.0',
       port: 12201,
       recv_buffer_size: 262144,
-      decompress_size_limit: 8388608
+      decompress_size_limit: 8388608,
     },
-    global: true
-  }
+    global: true,
+  },
 ]
 
 function request(method: string, path: string, body?: any): Promise<any> {
@@ -39,24 +39,29 @@ function request(method: string, path: string, body?: any): Promise<any> {
       path: '/api' + path,
       method: method,
       headers: {
-        'Authorization': AUTH,
+        Authorization: AUTH,
         'Content-Type': 'application/json',
-        'X-Requested-By': 'pino-graylog-transport-setup'
-      }
+        'X-Requested-By': 'pino-graylog-transport-setup',
+      },
     }
 
     const req = http.request(options, (res) => {
       let data = ''
-      res.on('data', (chunk) => data += chunk)
+      res.on('data', (chunk) => {
+        data += chunk
+        return data
+      })
       res.on('end', () => {
         if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
           try {
             resolve(data ? JSON.parse(data) : null)
-          } catch (e) {
+          } catch (e: unknown) {
             resolve(data)
           }
         } else {
-          reject(new Error(`Request failed with status ${res.statusCode}: ${data}`))
+          reject(
+            new Error(`Request failed with status ${res.statusCode}: ${data}`),
+          )
         }
       })
     })
@@ -80,7 +85,7 @@ async function waitForGraylog() {
       return
     } catch (e) {
       process.stdout.write('.')
-      await new Promise(resolve => setTimeout(resolve, 2000))
+      await new Promise((resolve) => setTimeout(resolve, 2000))
       retries--
     }
   }
@@ -112,4 +117,3 @@ async function setupInputs() {
 }
 
 setupInputs()
-

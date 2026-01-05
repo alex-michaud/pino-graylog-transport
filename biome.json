@@ -1,0 +1,78 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.3.11/schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "ignoreUnknown": false,
+    "includes": [
+      "**",
+      "!node_modules",
+      "!dist",
+      "!.git",
+      "!**/*.lock",
+      "!**/*.log",
+      "!**/.env*"
+    ]
+  },
+  "formatter": {
+    "enabled": true,
+    "includes": [
+      "lib/**/*.ts",
+      "test/**/*.ts",
+      "scripts/**/*.ts",
+      "examples/**/*.{js,ts}"
+    ],
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 80,
+    "bracketSpacing": true,
+    "formatWithErrors": false
+  },
+  "assist": { "actions": { "source": { "organizeImports": "on" } } },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      "complexity": {
+        "noExcessiveCognitiveComplexity": "warn"
+      },
+      "correctness": {
+        "noUnusedVariables": "warn"
+      },
+      "style": {
+        "useConst": "error",
+        "noParameterAssign": "error",
+        "useAsConstAssertion": "error",
+        "useDefaultParameterLast": "error",
+        "useEnumInitializers": "error",
+        "useSelfClosingElements": "error",
+        "useSingleVarDeclarator": "error",
+        "noUnusedTemplateLiteral": "error",
+        "useNumberNamespace": "error",
+        "noInferrableTypes": "error",
+        "noUselessElse": "error"
+      },
+      "suspicious": {
+        "noVar": "error"
+      }
+    }
+  },
+  "javascript": {
+    "parser": {
+      "unsafeParameterDecoratorsEnabled": false
+    },
+    "formatter": {
+      "enabled": true,
+      "quoteStyle": "single",
+      "lineWidth": 80,
+      "quoteProperties": "asNeeded",
+      "semicolons": "asNeeded",
+      "indentStyle": "space",
+      "indentWidth": 2,
+      "bracketSpacing": true
+    }
+  }
+}

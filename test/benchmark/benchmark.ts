@@ -1,5 +1,5 @@
-import { run, bench, group } from 'mitata';
-import { formatGelfMessage } from '../../lib/gelf-formatter';
+import { bench, group, run } from 'mitata'
+import { formatGelfMessage } from '../../lib/gelf-formatter'
 
 // Mock data
 const pinoLog = {
@@ -21,22 +21,22 @@ const pinoLog = {
     statusCode: 200,
   },
   responseTime: 150,
-};
+}
 
-const hostname = 'benchmark-host';
-const facility = 'benchmark-app';
-const staticMeta = { _env: 'production' };
+const hostname = 'benchmark-host'
+const facility = 'benchmark-app'
+const staticMeta = { _env: 'production' }
 
 // We benchmark formatting logic only (no network I/O)
 group('GELF Formatting', () => {
   // Baseline: raw JSON.stringify of the original log object
   bench('JSON.stringify (Raw)', () => {
-    JSON.stringify(pinoLog);
-  });
+    JSON.stringify(pinoLog)
+  })
 
   bench('pino-graylog-transport: formatGelfMessage', () => {
-    formatGelfMessage(pinoLog, hostname, facility, staticMeta);
-  });
+    formatGelfMessage(pinoLog, hostname, facility, staticMeta)
+  })
 
   bench('Manual GELF Construction (Simulated Alternative)', () => {
     // This simulates what a typical "verbose" library might do
@@ -52,12 +52,12 @@ group('GELF Formatting', () => {
       _pid: pinoLog.pid,
       _req: JSON.stringify(pinoLog.req),
       _res: JSON.stringify(pinoLog.res),
-      _responseTime: pinoLog.responseTime
-    };
-    JSON.stringify(message);
-  });
-});
+      _responseTime: pinoLog.responseTime,
+    }
+    JSON.stringify(message)
+  })
+})
 
-(async () => {
-  await run();
-})();
+;(async () => {
+  await run()
+})()
