@@ -47,7 +47,7 @@ function parseChunk(chunk: unknown): Record<string, unknown> {
     str = chunk.toString()
   }
 
-  // OPTIMIZATION 3: Heuristic check - only try parsing if it looks like JSON
+  // OPTIMIZATION: Heuristic check - only try parsing if it looks like JSON
   // This avoids expensive try-catch throws on plain text logs
   const firstChar = str.trim()[0]
   if (firstChar === '{' || firstChar === '[') {
