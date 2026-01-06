@@ -17,14 +17,14 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: 'lts/*'
           registry-url: 'https://registry.npmjs.org'
 
       - name: Install dependencies
         run: npm ci
 
       - name: Run tests
-        run: SKIP_INTEGRATION=true npm test
+        run: npm run test:unit
 
       - name: Build
         run: npm run build

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-const fs = require('fs')
+const fs = require('node:fs')
 
 function parseRequiredMajor(engineSpec) {
   if (!engineSpec || typeof engineSpec !== 'string') return 22
