@@ -1,4 +1,5 @@
 import pino from 'pino'
+import type { GraylogTransportOpts } from '../../lib/graylog-transport'
 import transport from '../../lib/index'
 
 describe('Integration Tests', () => {
@@ -13,7 +14,7 @@ describe('Integration Tests', () => {
         // allow long enough for connection attempts in CI
         this.timeout(5000)
 
-        const opts = {
+        const opts: GraylogTransportOpts = {
           host: 'localhost',
           port: 12201, // Ensure your local Graylog is listening on this TCP port
           protocol: 'tcp',
@@ -22,7 +23,7 @@ describe('Integration Tests', () => {
           // use non-blocking behavior for integration test to avoid hanging
           waitForDrain: false,
           dropWhenFull: true,
-          onReady: (success: boolean) => {},
+          onReady: (_success: boolean) => {},
         }
 
         // Promise that resolves with boolean: true if connected, false if failed or timed out
@@ -34,7 +35,7 @@ describe('Integration Tests', () => {
           }
         })
 
-        const transportInstance: any = transport(opts as any)
+        const transportInstance = transport(opts)
 
         const connected = await readyPromise
         if (!connected) {

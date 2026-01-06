@@ -45,4 +45,3 @@ if (isBun) {
 
 console.log('\n🎯 To run with Bun: bun run scripts/test-bun.js')
 console.log('🎯 To run with Node: node scripts/test-bun.js')
-

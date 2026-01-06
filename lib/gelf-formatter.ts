@@ -21,49 +21,39 @@ export const mapPinoLevelToGelf = (pinoLevel: number | undefined): number => {
   return 7 // trace -> debug
 }
 
-export function formatGelfMessage(
-  chunk: unknown,
-  hostname: string,
-  facility: string,
-  staticMeta: Record<string, unknown> = {},
-): string {
-  // Parse the log object - it might come as a string or object
-  let obj: Record<string, unknown>
+function parseChunk(chunk: unknown): Record<string, unknown> {
   if (typeof chunk === 'string') {
     try {
-      obj = JSON.parse(chunk)
+      return JSON.parse(chunk)
     } catch {
-      // If parsing fails, treat the whole string as the message
-      obj = { msg: chunk }
+      return { msg: chunk }
     }
-  } else if (Buffer.isBuffer(chunk)) {
-    try {
-      obj = JSON.parse(chunk.toString())
-    } catch {
-      obj = { msg: chunk.toString() }
-    }
-  } else {
-    obj = chunk as Record<string, unknown>
   }
 
-  // Extract the message - pino uses 'msg' field
-  const message =
+  if (Buffer.isBuffer(chunk)) {
+    try {
+      return JSON.parse(chunk.toString())
+    } catch {
+      return { msg: chunk.toString() }
+    }
+  }
+
+  return chunk as Record<string, unknown>
+}
+
+function extractMessage(obj: Record<string, unknown>): string {
+  return (
     (obj.msg as string) ||
     (obj.message as string) ||
     (obj.short_message as string) ||
     JSON.stringify(obj)
+  )
+}
 
-  // Build GELF 1.1 message
-  const gelfMessage: GelfMessage = {
-    version: '1.1',
-    host: hostname,
-    short_message: message,
-    timestamp: obj.time ? (obj.time as number) / 1000 : Date.now() / 1000,
-    level: mapPinoLevelToGelf(obj.level as number),
-    _facility: facility,
-  }
-
-  // Add static metadata with underscore prefix (GELF custom field requirement)
+function addStaticMetadata(
+  gelfMessage: GelfMessage,
+  staticMeta: Record<string, unknown>,
+): void {
   for (const [key, value] of Object.entries(staticMeta)) {
     if (value !== undefined && value !== null) {
       const fieldName = key.startsWith('_') ? key : `_${key}`
@@ -74,8 +64,12 @@ export function formatGelfMessage(
       }
     }
   }
+}
 
-  // Add full_message if there's a stack trace
+function addStackTrace(
+  gelfMessage: GelfMessage,
+  obj: Record<string, unknown>,
+): void {
   if (obj.stack) {
     gelfMessage.full_message = obj.stack as string
   } else if (
@@ -86,8 +80,12 @@ export function formatGelfMessage(
     gelfMessage.full_message = (obj.err as Record<string, unknown>)
       .stack as string
   }
+}
 
-  // Add all other fields as GELF custom fields (prefixed with _)
+function addCustomFields(
+  gelfMessage: GelfMessage,
+  obj: Record<string, unknown>,
+): void {
   const excludedFields = [
     'msg',
     'message',
@@ -106,7 +104,6 @@ export function formatGelfMessage(
       value !== undefined &&
       value !== null
     ) {
-      // GELF custom fields must start with underscore
       const fieldName = key.startsWith('_') ? key : `_${key}`
 
       // Avoid overwriting standard fields or static meta
@@ -125,6 +122,30 @@ export function formatGelfMessage(
   if (obj.pid) {
     gelfMessage._pid = obj.pid
   }
+}
+
+export function formatGelfMessage(
+  chunk: unknown,
+  hostname: string,
+  facility: string,
+  staticMeta: Record<string, unknown> = {},
+): string {
+  const obj = parseChunk(chunk)
+  const message = extractMessage(obj)
+
+  // Build GELF 1.1 message
+  const gelfMessage: GelfMessage = {
+    version: '1.1',
+    host: hostname,
+    short_message: message,
+    timestamp: obj.time ? (obj.time as number) / 1000 : Date.now() / 1000,
+    level: mapPinoLevelToGelf(obj.level as number),
+    _facility: facility,
+  }
+
+  addStaticMetadata(gelfMessage, staticMeta)
+  addStackTrace(gelfMessage, obj)
+  addCustomFields(gelfMessage, obj)
 
   return JSON.stringify(gelfMessage)
 }

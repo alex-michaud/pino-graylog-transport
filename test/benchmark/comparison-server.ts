@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import http from 'http'
+import http from 'node:http'
 import pino from 'pino'
 import winston from 'winston'
 import transport from '../../lib/index'
@@ -36,7 +36,7 @@ const pinoTransport = transport({
 const pinoLogger = pino({ level: 'info' }, pinoTransport)
 
 // --- WINSTON SETUP ---
-let winstonGraylogTransport: any = null
+let winstonGraylogTransport = null
 let winstonStatus = 'initializing'
 
 try {
@@ -55,7 +55,7 @@ try {
   })
 
   // Add error handler to catch connectivity issues
-  winstonGraylogTransport.on('error', (err: any) => {
+  winstonGraylogTransport.on('error', (err: Error) => {
     console.error('🚨 Winston Transport Error:', err.message)
   })
 
@@ -68,7 +68,7 @@ try {
     `Winston transport configured: tcp://${graylogHost}:${graylogPort}`,
   )
   winstonStatus = 'connected (winston-log2gelf)'
-} catch (err: unknown) {
+} catch (_err) {
   winstonStatus = 'fallback (Console)'
   console.error('\n❌ winston-log2gelf NOT found.')
   console.error('   To fix: npm install winston-log2gelf')
@@ -77,7 +77,7 @@ try {
   )
 }
 
-const winstonTransports: any[] = []
+const winstonTransports = []
 if (winstonGraylogTransport) {
   winstonTransports.push(winstonGraylogTransport)
 } else {

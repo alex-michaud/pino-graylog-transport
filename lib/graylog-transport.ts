@@ -1,13 +1,11 @@
-import net from 'node:net'
+import type net from 'node:net'
 import os from 'node:os'
 import { Writable } from 'node:stream'
-import tls from 'node:tls'
 import { formatGelfMessage } from './gelf-formatter'
+import { MessageQueue } from './message-queue'
+import { SocketConnectionManager } from './socket-connection'
 
-// Runtime detection: Check if running in Bun (which has faster APIs)
-const isBun = typeof process.versions.bun !== 'undefined'
-
-type GraylogTransportOpts = {
+export type GraylogTransportOpts = {
   host?: string
   port?: number
   protocol?: 'tcp' | 'tls'
@@ -29,10 +27,10 @@ type GraylogTransportOpts = {
 export class GraylogWritable extends Writable {
   private socket: net.Socket | null = null
   private connectionPromise: Promise<net.Socket> | null = null
-  private messageQueue: string[] = []
+  private messageQueue: MessageQueue
   private initializationAttempted = false
   private ready = false
-  private droppedMessageCount = 0
+  private readonly socketManager = new SocketConnectionManager()
 
   private readonly host: string
   private readonly port: number
@@ -40,9 +38,7 @@ export class GraylogWritable extends Writable {
   private readonly staticMeta: Record<string, unknown>
   private readonly hostname: string
   private readonly facility: string
-  private readonly maxQueueSize: number
   private readonly waitForDrain: boolean
-  private readonly dropWhenFull: boolean
   private readonly handleError: (
     error: Error,
     context?: Record<string, unknown>,
@@ -58,9 +54,29 @@ export class GraylogWritable extends Writable {
     this.staticMeta = opts.staticMeta ?? {}
     this.hostname = opts.hostname ?? os.hostname()
     this.facility = opts.facility ?? this.hostname
-    this.maxQueueSize = opts.maxQueueSize ?? 1000
-    this.waitForDrain = opts.waitForDrain === undefined ? true : Boolean(opts.waitForDrain)
-    this.dropWhenFull = opts.dropWhenFull === undefined ? false : Boolean(opts.dropWhenFull)
+    this.waitForDrain =
+      opts.waitForDrain === undefined ? true : Boolean(opts.waitForDrain)
+
+    // Initialize message queue
+    this.messageQueue = new MessageQueue({
+      maxSize: opts.maxQueueSize ?? 1000,
+      dropWhenFull: opts.dropWhenFull ?? false,
+      onDropped: (reason, count) => {
+        this.handleError(
+          new Error(
+            opts.dropWhenFull
+              ? 'Graylog message dropped due to full queue'
+              : 'Graylog message queue overflow',
+          ),
+          {
+            reason,
+            queueSize: this.messageQueue.getMaxSize(),
+            droppedCount: count,
+          },
+        )
+      },
+    })
+
     this.handleError =
       opts.onError ??
       ((error: Error, context?: Record<string, unknown>) => {
@@ -92,7 +108,7 @@ export class GraylogWritable extends Writable {
   }
 
   getQueueSize(): number {
-    return this.messageQueue.length
+    return this.messageQueue.size()
   }
 
   isConnected(): boolean {
@@ -100,11 +116,11 @@ export class GraylogWritable extends Writable {
   }
 
   getDroppedMessageCount(): number {
-    return this.droppedMessageCount
+    return this.messageQueue.getDroppedCount()
   }
 
   getMaxQueueSize(): number {
-    return this.maxQueueSize
+    return this.messageQueue.getMaxSize()
   }
 
   // --- Writable implementation ---
@@ -120,71 +136,40 @@ export class GraylogWritable extends Writable {
       this.facility,
       this.staticMeta,
     )
+    const message = `${gelfStr}\0`
 
     const socket = this.socket
-
     if (socket && !socket.destroyed) {
-      // GELF over TCP requires null byte terminator
-      const message = gelfStr + '\0'
-
-      // Bun optimization: Use Bun.write() if available (faster than socket.write)
-      if (isBun && (socket as any).write) {
-        // Bun's write is synchronous and faster, but we still respect the API
-        const success = socket.write(message)
-        if (this.waitForDrain && !success) {
-          socket.once('drain', callback)
-        } else {
-          callback()
-        }
-      } else {
-        // Standard Node.js path
-        const success = socket.write(message)
-        if (this.waitForDrain && !success) {
-          socket.once('drain', callback)
-        } else {
-          callback()
-        }
-      }
+      this.writeToSocket(socket, message, callback)
     } else {
-      // Queue message if not connected - store with terminator
-      const queueLen = this.messageQueue.length
-      if (queueLen >= this.maxQueueSize) {
-        if (this.dropWhenFull) {
-          // Drop incoming message
-          this.droppedMessageCount++
-          if (this.droppedMessageCount % 100 === 1) {
-            this.handleError(
-              new Error('Graylog message dropped due to full queue'),
-              {
-                reason: 'Queue full, dropWhenFull=true',
-                queueSize: this.maxQueueSize,
-                droppedCount: this.droppedMessageCount,
-              },
-            )
-          }
-          callback()
-          return
-        }
-        // Drop oldest to make room (FIFO) - shift is O(n) but rare in connected state
-        this.messageQueue.shift()
-        this.droppedMessageCount++
-        if (this.droppedMessageCount % 100 === 1) {
-          this.handleError(new Error('Graylog message queue overflow'), {
-            reason: 'Queue at max capacity, dropping oldest messages',
-            queueSize: this.maxQueueSize,
-            droppedCount: this.droppedMessageCount,
-          })
-        }
-      }
+      this.queueMessage(message, callback)
+    }
+  }
 
-      this.messageQueue.push(gelfStr + '\0')
-      this.connect().catch((err) => {
-        this.handleError(err, {
-          reason: 'Failed to connect while sending message',
-        })
-      })
+  private writeToSocket(
+    socket: net.Socket,
+    message: string,
+    callback: (error?: Error | null) => void,
+  ): void {
+    const success = socket.write(message)
+    if (this.waitForDrain && !success) {
+      socket.once('drain', callback)
+    } else {
       callback()
     }
+  }
+
+  private queueMessage(
+    message: string,
+    callback: (error?: Error | null) => void,
+  ): void {
+    this.messageQueue.enqueue(message)
+    this.connect().catch((err) => {
+      this.handleError(err, {
+        reason: 'Failed to connect while sending message',
+      })
+    })
+    callback()
   }
 
   override _final(callback: (error?: Error | null) => void): void {
@@ -216,162 +201,46 @@ export class GraylogWritable extends Writable {
     }
 
     this.connectionPromise = new Promise<net.Socket>((resolve, reject) => {
-      const connectionTimeout = setTimeout(() => {
-        const timeoutError = new Error('Graylog connection timeout')
-        try {
-          // newSocket may not be assigned yet
-          if (typeof newSocket !== 'undefined' && newSocket) newSocket.destroy()
-        } catch (e) {}
-        this.socket = null
-        this.connectionPromise = null
-        reject(timeoutError)
-      }, 10000)
+      const { socket, cleanup } = this.socketManager.createConnection({
+        host: this.host,
+        port: this.port,
+        protocol: this.protocol,
+        onConnect: () => {
+          cleanup()
+          this.socket = socket
+          this.ready = true
 
-      const onConnect = () => {
-        clearTimeout(connectionTimeout)
-        this.socket = newSocket
-        this.ready = true
-
-        if (!this.initializationAttempted && this.onReady) {
-          this.initializationAttempted = true
-          this.onReady(true)
-        }
-
-        // Flush queued messages
-        const messagesToFlush = [...this.messageQueue]
-        this.messageQueue = []
-        for (const msg of messagesToFlush) {
-          if (this.socket && !this.socket.destroyed) {
-            this.socket.write(msg)
+          if (!this.initializationAttempted && this.onReady) {
+            this.initializationAttempted = true
+            this.onReady(true)
           }
-        }
 
-        this.connectionPromise = null
-        resolve(newSocket)
-      }
-
-      let newSocket: net.Socket
-      if (this.protocol === 'tcp') {
-        // Bun optimization: Use Bun.connect() if available (faster TCP connection)
-        if (isBun && typeof (globalThis as any).Bun?.connect === 'function') {
-          try {
-            // Bun.connect returns a socket-like object compatible with Node's net.Socket
-            const bunSocket = (globalThis as any).Bun.connect({
-              hostname: this.host,
-              port: this.port,
-              socket: {
-                data: () => {}, // no-op data handler
-                open: (socket: any) => {
-                  // Bun calls 'open' callback when connected
-                  onConnect()
-                },
-                error: (socket: any, error: Error) => {
-                  clearTimeout(connectionTimeout)
-                  this.handleError(error, {
-                    host: this.host,
-                    port: this.port,
-                    reason: 'TCP connection error (Bun)',
-                  })
-                  this.socket = null
-                  this.connectionPromise = null
-                  reject(error)
-                },
-                close: () => {
-                  clearTimeout(connectionTimeout)
-                  this.socket = null
-                  if (this.connectionPromise) {
-                    this.connectionPromise = null
-                  }
-                },
-              },
-            })
-            newSocket = bunSocket as net.Socket
-            // Set TCP optimizations on Bun socket if available
-            if (typeof newSocket.setNoDelay === 'function') newSocket.setNoDelay(true)
-            if (typeof newSocket.setKeepAlive === 'function') newSocket.setKeepAlive(true)
-          } catch (bunError) {
-            // Fallback to Node.js if Bun.connect fails
-            newSocket = net.createConnection(
-              { host: this.host, port: this.port },
-              onConnect,
-            )
-            newSocket.setNoDelay(true)
-            newSocket.setKeepAlive(true)
-            newSocket.on('error', (err: Error) => {
-              clearTimeout(connectionTimeout)
-              this.handleError(err, {
-                host: this.host,
-                port: this.port,
-                reason: 'TCP connection error',
-              })
-              this.socket = null
-              this.connectionPromise = null
-              reject(err)
-            })
-            newSocket.on('close', () => {
-              clearTimeout(connectionTimeout)
-              this.socket = null
-              if (this.connectionPromise) {
-                this.connectionPromise = null
-              }
-            })
-          }
-        } else {
-          // Standard Node.js TCP connection
-          newSocket = net.createConnection(
-            { host: this.host, port: this.port },
-            onConnect,
-          )
-          newSocket.setNoDelay(true)
-          newSocket.setKeepAlive(true)
-          newSocket.on('error', (err: Error) => {
-            clearTimeout(connectionTimeout)
-            this.handleError(err, {
-              host: this.host,
-              port: this.port,
-              reason: 'TCP connection error',
-            })
-            this.socket = null
-            this.connectionPromise = null
-            reject(err)
-          })
-          newSocket.on('close', () => {
-            clearTimeout(connectionTimeout)
-            this.socket = null
-            if (this.connectionPromise) {
-              this.connectionPromise = null
+          // Flush queued messages
+          const messagesToFlush = this.messageQueue.flush()
+          for (const msg of messagesToFlush) {
+            if (this.socket && !this.socket.destroyed) {
+              this.socket.write(msg)
             }
-          })
-        }
-      } else {
-        newSocket = tls.connect(
-          { host: this.host, port: this.port, rejectUnauthorized: true },
-          onConnect,
-        )
-        // OPTIMIZATIONS for TLS
-        newSocket.setNoDelay(true)
-        newSocket.setKeepAlive(true)
+          }
 
-        newSocket.on('error', (err: Error) => {
-          clearTimeout(connectionTimeout)
-          this.handleError(err, {
-            host: this.host,
-            port: this.port,
-            reason: 'TLS connection error',
-          })
+          this.connectionPromise = null
+          resolve(socket)
+        },
+        onError: (error, context) => {
+          cleanup()
+          this.handleError(error, context)
           this.socket = null
           this.connectionPromise = null
-          reject(err)
-        })
-
-        newSocket.on('close', () => {
-          clearTimeout(connectionTimeout)
+          reject(error)
+        },
+        onClose: () => {
+          cleanup()
           this.socket = null
           if (this.connectionPromise) {
             this.connectionPromise = null
           }
-        })
-      }
+        },
+      })
     })
 
     return this.connectionPromise

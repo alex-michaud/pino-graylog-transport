@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import http from 'http'
+import http from 'node:http'
 import pino from 'pino'
 import transport from '../../lib/index'
 

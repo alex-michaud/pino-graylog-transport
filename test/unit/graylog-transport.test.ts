@@ -1,5 +1,5 @@
-import { expect } from 'chai'
 import { Writable } from 'node:stream'
+import { expect } from 'chai'
 import graylogTransport, { GraylogWritable } from '../../lib/graylog-transport'
 
 describe('Graylog Transport', () => {

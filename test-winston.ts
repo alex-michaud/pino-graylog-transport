@@ -11,7 +11,7 @@ const graylogPort = 12201
 console.log('Testing winston-log2gelf...')
 console.log(`Target: tcp://${graylogHost}:${graylogPort}`)
 
-let winstonTransport: any = null
+let winstonTransport = null
 
 try {
   const Log2gelf = require('winston-log2gelf')

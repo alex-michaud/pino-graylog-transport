@@ -1,10 +1,21 @@
-import http from 'http'
+import http from 'node:http'
 
 const GRAYLOG_API_HOST = 'localhost'
 const GRAYLOG_API_PORT = 9005
-const AUTH = 'Basic ' + Buffer.from('admin:admin').toString('base64')
+const AUTH = `Basic ${Buffer.from('admin:admin').toString('base64')}`
 
-const inputs = [
+interface GraylogInput {
+  title: string
+  type: string
+  configuration: Record<string, unknown>
+  global: boolean
+}
+
+interface GraylogInputsResponse {
+  inputs: Array<{ title: string; [key: string]: unknown }>
+}
+
+const inputs: GraylogInput[] = [
   {
     title: 'GELF TCP',
     type: 'org.graylog2.inputs.gelf.tcp.GELFTCPInput',
@@ -31,12 +42,33 @@ const inputs = [
   },
 ]
 
-function request(method: string, path: string, body?: any): Promise<any> {
+function handleResponse(
+  data: string,
+  statusCode: number | undefined,
+  resolve: (value: unknown) => void,
+  reject: (reason: Error) => void,
+): void {
+  if (statusCode && statusCode >= 200 && statusCode < 300) {
+    try {
+      resolve(data ? JSON.parse(data) : null)
+    } catch (_e: unknown) {
+      resolve(data)
+    }
+  } else {
+    reject(new Error(`Request failed with status ${statusCode}: ${data}`))
+  }
+}
+
+function request(
+  method: string,
+  path: string,
+  body?: unknown,
+): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const options = {
       hostname: GRAYLOG_API_HOST,
       port: GRAYLOG_API_PORT,
-      path: '/api' + path,
+      path: `/api${path}`,
       method: method,
       headers: {
         Authorization: AUTH,
@@ -49,20 +81,9 @@ function request(method: string, path: string, body?: any): Promise<any> {
       let data = ''
       res.on('data', (chunk) => {
         data += chunk
-        return data
       })
       res.on('end', () => {
-        if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
-          try {
-            resolve(data ? JSON.parse(data) : null)
-          } catch (e: unknown) {
-            resolve(data)
-          }
-        } else {
-          reject(
-            new Error(`Request failed with status ${res.statusCode}: ${data}`),
-          )
-        }
+        handleResponse(data, res.statusCode, resolve, reject)
       })
     })
 
@@ -83,7 +104,7 @@ async function waitForGraylog() {
       await request('GET', '/system/lbstatus')
       console.log('Graylog is ready!')
       return
-    } catch (e) {
+    } catch (_err) {
       process.stdout.write('.')
       await new Promise((resolve) => setTimeout(resolve, 2000))
       retries--
@@ -96,8 +117,11 @@ async function setupInputs() {
   try {
     await waitForGraylog()
 
-    const existingInputs = await request('GET', '/system/inputs')
-    const existingTitles = existingInputs.inputs.map((i: any) => i.title)
+    const existingInputs = (await request(
+      'GET',
+      '/system/inputs',
+    )) as GraylogInputsResponse
+    const existingTitles = existingInputs.inputs.map((i) => i.title)
 
     for (const input of inputs) {
       if (existingTitles.includes(input.title)) {

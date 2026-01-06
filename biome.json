@@ -22,7 +22,7 @@
     "includes": [
       "lib/**/*.ts",
       "test/**/*.ts",
-      "scripts/**/*.ts",
+      "scripts/**/*.{js,ts}",
       "examples/**/*.{js,ts}"
     ],
     "indentStyle": "space",
