@@ -8,7 +8,7 @@ export interface GelfMessage {
   [key: string]: unknown
 }
 
-// OPTIMIZATION 1: Hoist constant outside the hot path and use Set for O(1) lookup
+// OPTIMIZATION: Hoist constant outside the hot path and use Set for O(1) lookup
 const EXCLUDED_FIELDS = new Set([
   'msg',
   'message',
@@ -73,7 +73,7 @@ function addStaticMetadata(
   gelfMessage: GelfMessage,
   staticMeta: Record<string, unknown>,
 ): void {
-  // OPTIMIZATION 2: Use for...in to avoid allocating Object.entries array
+  // OPTIMIZATION: Use for...in to avoid allocating Object.entries array
   for (const key in staticMeta) {
     const value = staticMeta[key]
     if (value !== undefined && value !== null) {
@@ -106,9 +106,9 @@ function addCustomFields(
   gelfMessage: GelfMessage,
   obj: Record<string, unknown>,
 ): void {
-  // OPTIMIZATION 2: Use for...in loop instead of Object.entries
+  // OPTIMIZATION: Use for...in loop instead of Object.entries
   for (const key in obj) {
-    // OPTIMIZATION 1: O(1) lookup in Set instead of Array.includes
+    // OPTIMIZATION: O(1) lookup in Set instead of Array.includes
     if (EXCLUDED_FIELDS.has(key)) continue
 
     const value = obj[key]
