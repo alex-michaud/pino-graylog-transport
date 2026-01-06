@@ -14,7 +14,7 @@ interface BunGlobal {
 export interface SocketConnectionOpts {
   host: string
   port: number
-  protocol: 'tcp' | 'tls'
+  protocol: 'tcp' | 'tls' | 'udp'
   onConnect: () => void
   onError: (error: Error, context: Record<string, unknown>) => void
   onClose: () => void

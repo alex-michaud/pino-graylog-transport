@@ -13,6 +13,12 @@
     "dist/graylog-transport.d.ts",
     "dist/gelf-formatter.js",
     "dist/gelf-formatter.d.ts",
+    "dist/message-queue.js",
+    "dist/message-queue.d.ts",
+    "dist/socket-connection.js",
+    "dist/socket-connection.d.ts",
+    "dist/udp-client.js",
+    "dist/udp-client.d.ts",
     "README.md",
     "LICENSE"
   ],

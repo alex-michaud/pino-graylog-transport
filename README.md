@@ -1,12 +1,12 @@
 # pino-graylog-transport
 
-A Pino transport module that sends log messages to Graylog using the GELF (Graylog Extended Log Format) protocol over TCP or TLS.
+A Pino transport module that sends log messages to Graylog using the GELF (Graylog Extended Log Format) protocol over TCP, TLS, or UDP.
 
 ## Features
 
 - 🚀 Full support for Pino transports API
 - 📦 GELF (Graylog Extended Log Format) message formatting
-- 🔒 TLS and TCP protocol support (secure by default)
+- 🔒 TLS, TCP, and UDP protocol support (TLS secure by default)
 - 🔧 Configurable facility, host, and port
 - 📊 Automatic log level conversion (Pino → Syslog)
 - 🏷️ Custom field support with GELF underscore prefix
@@ -49,7 +49,7 @@ logger.info('Hello Graylog!');
 |--------|------|---------|-------------|
 | `host` | string | `'localhost'` | Graylog server hostname |
 | `port` | number | `12201` | Graylog GELF input port (standard GELF TCP port) |
-| `protocol` | string | `'tls'` | Protocol to use (`'tcp'` or `'tls'`). **Default is `'tls'` for security** - uses encrypted connection to prevent exposure of sensitive data. Use `'tcp'` only for local development. |
+| `protocol` | string | `'tls'` | Protocol to use (`'tcp'`, `'tls'`, or `'udp'`). **Default is `'tls'` for security** - uses encrypted connection to prevent exposure of sensitive data. Use `'tcp'` only for local development. Use `'udp'` for high-throughput scenarios where delivery guarantees are not required. |
 | `facility` | string | `hostname` | **Application/service identifier** sent with every message. Used to categorize logs by application in Graylog (e.g., `'api-gateway'`, `'auth-service'`). Sent as `_facility` additional field per [GELF spec](https://go2docs.graylog.org/current/getting_in_log_data/gelf.html). |
 | `hostname` | string | `os.hostname()` | Host field in GELF messages (the machine/server name) |
 | `staticMeta` | object | `{}` | Static fields included in **every** log message (e.g., auth tokens, environment, datacenter). These are sent as GELF custom fields with underscore prefix. |
@@ -221,9 +221,29 @@ try {
 const logger = pino(await transport({
   host: 'localhost',
   port: 12201,
-  protocol: 'tcp'  // Use TCP instead of UDP
+  protocol: 'tcp'  // Use TCP instead of TLS
 }));
 ```
+
+### UDP Protocol
+
+```javascript
+const logger = pino(await transport({
+  host: 'localhost',
+  port: 12201,
+  protocol: 'udp'  // Use UDP for high-throughput, fire-and-forget logging
+}));
+```
+
+**Note:** UDP is connectionless and does not guarantee message delivery. Use it when:
+- You need maximum throughput
+- Occasional message loss is acceptable
+- You're logging to a local Graylog instance
+- Network reliability is high
+
+UDP GELF messages are limited to ~8KB. Larger messages may be truncated.
+
+**Bun Runtime:** When running under [Bun](https://bun.sh/), the UDP transport automatically uses Bun's native `Bun.udpSocket()` API for better performance. Falls back to Node's `dgram` module if unavailable.
 
 ### Run the Example
 
