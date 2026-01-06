@@ -173,16 +173,33 @@ npm install
 
 ### Unit Tests
 
-Run the library functionality tests:
+Run the library functionality tests (no external dependencies required):
 
 ```bash
 npm test
+# or
+npm run test:unit
 ```
 
-Skip integration tests (if Graylog is not running):
+### Integration Tests
+
+Integration tests require a running Graylog instance:
 
 ```bash
-SKIP_INTEGRATION=true npm test
+# Start Graylog first
+npm run docker:up
+npm run docker:setup
+
+# Run integration tests
+npm run test:integration
+```
+
+### Run All Tests
+
+Run both unit and integration tests:
+
+```bash
+npm run test:all
 ```
 
 ### Load Tests with k6
@@ -341,3 +358,18 @@ ISC
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
+
+## Requirements
+
+[![Node.js Version](https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg)](https://nodejs.org/)
+
+This package requires Node.js >= 22 (declared in package.json `engines`). The CI and release workflows prefer the latest Node LTS. If your local Node version is older, upgrade Node (for example, using nvm):
+
+```bash
+# Install nvm (if not present)
+# https://github.com/nvm-sh/nvm#installing-and-updating
+
+# Use latest LTS
+nvm install --lts
+nvm use --lts
+```
