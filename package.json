@@ -4,6 +4,24 @@
   "description": "Pino transport that sends log to graylog",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "files": [
+    "dist/index.js",
+    "dist/index.d.ts",
+    "dist/graylog-transport.js",
+    "dist/graylog-transport.d.ts",
+    "dist/gelf-formatter.js",
+    "dist/gelf-formatter.d.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/alex-michaud/pino-graylog-transport.git"
+  },
+  "bugs": {
+    "url": "https://github.com/alex-michaud/pino-graylog-transport/issues"
+  },
+  "homepage": "https://github.com/alex-michaud/pino-graylog-transport#readme",
   "scripts": {
     "build": "tsc",
     "prepublishOnly": "npm run build",
@@ -29,8 +47,8 @@
     "logging",
     "gelf"
   ],
-  "author": "",
-  "license": "ISC",
+  "author": "Your Name <your.email@example.com>",
+  "license": "MIT",
   "dependencies": {
     "pino-abstract-transport": "3.0.0"
   },
