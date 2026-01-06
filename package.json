@@ -2,6 +2,8 @@
   "name": "pino-graylog-transport",
   "version": "1.0.0",
   "description": "Pino transport that sends log to graylog",
+  "author": "Alexandre Michaud <alex-michaud@users.noreply.github.com>",
+  "license": "MIT",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [
@@ -51,8 +53,6 @@
     "logging",
     "gelf"
   ],
-  "author": "Your Name <your.email@example.com>",
-  "license": "MIT",
   "dependencies": {
     "pino-abstract-transport": "3.0.0"
   },

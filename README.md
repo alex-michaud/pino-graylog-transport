@@ -428,7 +428,7 @@ Compare the `*_duration` metrics to see the logging overhead for each library.
 
 ## License
 
-ISC
+MIT — see the [LICENSE](./LICENSE) file for details.
 
 ## Contributing
 
