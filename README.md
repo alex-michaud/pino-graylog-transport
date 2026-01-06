@@ -27,7 +27,8 @@ const transport = require('pino-graylog-transport');
 const transportInstance = transport({
   host: 'graylog.example.com',
   port: 12201,
-  protocol: 'tcp',
+  // Use 'tls' for encrypted connections to remote Graylog servers
+  protocol: 'tls',
   facility: 'my-app',
   staticMeta: {
     environment: 'production',
