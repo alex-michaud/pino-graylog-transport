@@ -117,7 +117,7 @@ describe('GELF Formatter', () => {
         level: 30,
         msg: 'Test',
       }
-      const staticMeta = { '_X-OVH-TOKEN': 'secret' }
+      const staticMeta = { token: 'secret-token', env: 'production' }
 
       const gelfString = formatGelfMessage(
         pinoLog,
@@ -127,7 +127,8 @@ describe('GELF Formatter', () => {
       )
       const gelf = JSON.parse(gelfString)
 
-      expect(gelf).to.have.property('_X-OVH-TOKEN', 'secret')
+      expect(gelf).to.have.property('_token', 'secret-token')
+      expect(gelf).to.have.property('_env', 'production')
     })
   })
 })

@@ -5,9 +5,21 @@ export interface GelfMessage {
   full_message?: string
   timestamp: number
   level: number
-  _facility?: string
   [key: string]: unknown
 }
+
+// OPTIMIZATION: Hoist constant outside the hot path and use Set for O(1) lookup
+const EXCLUDED_FIELDS = new Set([
+  'msg',
+  'message',
+  'level',
+  'time',
+  'pid',
+  'hostname',
+  'stack',
+  'v',
+  'err',
+])
 
 export const mapPinoLevelToGelf = (pinoLevel: number | undefined): number => {
   // Pino levels: 10 trace, 20 debug, 30 info, 40 warn, 50 error, 60 fatal
@@ -22,46 +34,53 @@ export const mapPinoLevelToGelf = (pinoLevel: number | undefined): number => {
 }
 
 function parseChunk(chunk: unknown): Record<string, unknown> {
+  // OPTIMIZATION: Check object type first (most common case from Pino)
+  if (typeof chunk === 'object' && chunk !== null) {
+    return chunk as Record<string, unknown>
+  }
+
+  // Handle strings and buffers
+  let str = ''
   if (typeof chunk === 'string') {
+    str = chunk
+  } else if (Buffer.isBuffer(chunk)) {
+    str = chunk.toString()
+  }
+
+  // OPTIMIZATION: Heuristic check - only try parsing if it looks like JSON
+  // This avoids expensive try-catch throws on plain text logs
+  const firstChar = str.trim()[0]
+  if (firstChar === '{' || firstChar === '[') {
     try {
-      return JSON.parse(chunk)
+      return JSON.parse(str)
     } catch {
-      return { msg: chunk }
+      // If parse fails despite looking like JSON, fall back to wrapping it
     }
   }
 
-  if (Buffer.isBuffer(chunk)) {
-    try {
-      return JSON.parse(chunk.toString())
-    } catch {
-      return { msg: chunk.toString() }
-    }
-  }
-
-  return chunk as Record<string, unknown>
+  return { msg: str }
 }
 
 function extractMessage(obj: Record<string, unknown>): string {
-  return (
-    (obj.msg as string) ||
-    (obj.message as string) ||
-    (obj.short_message as string) ||
-    JSON.stringify(obj)
-  )
+  // OPTIMIZATION: Use explicit type checks (slightly faster than truthiness)
+  if (typeof obj.msg === 'string') return obj.msg
+  if (typeof obj.message === 'string') return obj.message
+  if (typeof obj.short_message === 'string') return obj.short_message
+  return JSON.stringify(obj)
 }
 
 function addStaticMetadata(
   gelfMessage: GelfMessage,
   staticMeta: Record<string, unknown>,
 ): void {
-  for (const [key, value] of Object.entries(staticMeta)) {
+  // OPTIMIZATION: Use for...in to avoid allocating Object.entries array
+  for (const key in staticMeta) {
+    const value = staticMeta[key]
     if (value !== undefined && value !== null) {
-      const fieldName = key.startsWith('_') ? key : `_${key}`
-      if (typeof value === 'object') {
-        gelfMessage[fieldName] = JSON.stringify(value)
-      } else {
-        gelfMessage[fieldName] = value
-      }
+      // OPTIMIZATION: Use charCodeAt for underscore check (95 is '_')
+      const fieldName = key.charCodeAt(0) === 95 ? key : `_${key}`
+      gelfMessage[fieldName] =
+        typeof value === 'object' ? JSON.stringify(value) : value
     }
   }
 }
@@ -70,15 +89,16 @@ function addStackTrace(
   gelfMessage: GelfMessage,
   obj: Record<string, unknown>,
 ): void {
-  if (obj.stack) {
-    gelfMessage.full_message = obj.stack as string
-  } else if (
-    obj.err &&
-    typeof obj.err === 'object' &&
-    (obj.err as Record<string, unknown>).stack
-  ) {
-    gelfMessage.full_message = (obj.err as Record<string, unknown>)
-      .stack as string
+  // Check for direct stack
+  if (typeof obj.stack === 'string') {
+    gelfMessage.full_message = obj.stack
+    return
+  }
+
+  // Check for nested err.stack using optional chaining
+  const err = obj.err as Record<string, unknown> | undefined
+  if (typeof err?.stack === 'string') {
+    gelfMessage.full_message = err.stack
   }
 }
 
@@ -86,36 +106,23 @@ function addCustomFields(
   gelfMessage: GelfMessage,
   obj: Record<string, unknown>,
 ): void {
-  const excludedFields = [
-    'msg',
-    'message',
-    'level',
-    'time',
-    'pid',
-    'hostname',
-    'stack',
-    'v',
-    'err',
-  ]
+  // OPTIMIZATION: Use for...in loop instead of Object.entries
+  for (const key in obj) {
+    // OPTIMIZATION: O(1) lookup in Set instead of Array.includes
+    if (EXCLUDED_FIELDS.has(key)) continue
 
-  for (const [key, value] of Object.entries(obj)) {
-    if (
-      !excludedFields.includes(key) &&
-      value !== undefined &&
-      value !== null
-    ) {
-      const fieldName = key.startsWith('_') ? key : `_${key}`
+    const value = obj[key]
+    if (value === undefined || value === null) continue
 
-      // Avoid overwriting standard fields or static meta
-      if (fieldName in gelfMessage) continue
+    // OPTIMIZATION: Use charCodeAt for underscore check
+    const fieldName = key.charCodeAt(0) === 95 ? key : `_${key}`
 
-      // GELF doesn't support nested objects well, stringify them
-      if (typeof value === 'object') {
-        gelfMessage[fieldName] = JSON.stringify(value)
-      } else {
-        gelfMessage[fieldName] = value
-      }
-    }
+    // Avoid overwriting standard fields or static meta
+    if (fieldName in gelfMessage) continue
+
+    // GELF doesn't support nested objects well, stringify them
+    gelfMessage[fieldName] =
+      typeof value === 'object' ? JSON.stringify(value) : value
   }
 
   // Add process info
@@ -131,16 +138,26 @@ export function formatGelfMessage(
   staticMeta: Record<string, unknown> = {},
 ): string {
   const obj = parseChunk(chunk)
-  const message = extractMessage(obj)
+
+  // Pino adds 'time' field automatically (milliseconds since epoch)
+  // We preserve it to maintain accurate event timing even if messages are queued
+  // Fallback to current time for non-Pino messages
+  // OPTIMIZATION: Use typeof check and multiplication (faster than division)
+  const timestamp =
+    typeof obj.time === 'number' ? obj.time * 1e-3 : Date.now() * 1e-3
 
   // Build GELF 1.1 message
   const gelfMessage: GelfMessage = {
     version: '1.1',
     host: hostname,
-    short_message: message,
-    timestamp: obj.time ? (obj.time as number) / 1000 : Date.now() / 1000,
+    short_message: extractMessage(obj),
+    timestamp,
     level: mapPinoLevelToGelf(obj.level as number),
-    _facility: facility,
+  }
+
+  // Add facility as additional field (deprecated in GELF spec, now sent as custom field)
+  if (facility) {
+    gelfMessage._facility = facility
   }
 
   addStaticMetadata(gelfMessage, staticMeta)

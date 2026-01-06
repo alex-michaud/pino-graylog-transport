@@ -25,12 +25,16 @@ const pino = require('pino');
 const transport = require('pino-graylog-transport');
 
 const transportInstance = transport({
-  host: 'bhs1.logs.ovh.com',
-  port: 12202,
+  host: 'graylog.example.com',
+  port: 12201,
+  // TLS is the default for secure transmission over networks
+  // Use protocol: 'tcp' only for local development (localhost)
   protocol: 'tls',
   facility: 'my-app',
   staticMeta: {
-    '_X-OVH-TOKEN': 'your-token-here'
+    environment: 'production',
+    service: 'api',
+    version: '1.0.0'
   }
 });
 
@@ -43,30 +47,99 @@ logger.info('Hello Graylog!');
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `host` | string | `'bhs1.logs.ovh.com'` | Graylog server hostname |
-| `port` | number | `12202` | Graylog GELF input port |
-| `protocol` | string | `'tls'` | Protocol to use (`'tcp'` or `'tls'`) |
-| `staticMeta` | object | `{}` | Static fields to include in every message (e.g. tokens) |
-| `facility` | string | `hostname` | Facility name for GELF messages |
-| `hostname` | string | `os.hostname()` | Host field in GELF messages |
+| `host` | string | `'localhost'` | Graylog server hostname |
+| `port` | number | `12201` | Graylog GELF input port (standard GELF TCP port) |
+| `protocol` | string | `'tls'` | Protocol to use (`'tcp'` or `'tls'`). **Default is `'tls'` for security** - uses encrypted connection to prevent exposure of sensitive data. Use `'tcp'` only for local development. |
+| `facility` | string | `hostname` | **Application/service identifier** sent with every message. Used to categorize logs by application in Graylog (e.g., `'api-gateway'`, `'auth-service'`). Sent as `_facility` additional field per [GELF spec](https://go2docs.graylog.org/current/getting_in_log_data/gelf.html). |
+| `hostname` | string | `os.hostname()` | Host field in GELF messages (the machine/server name) |
+| `staticMeta` | object | `{}` | Static fields included in **every** log message (e.g., auth tokens, environment, datacenter). These are sent as GELF custom fields with underscore prefix. |
 | `maxQueueSize` | number | `1000` | Max messages to queue when disconnected |
 | `onError` | function | `console.error` | Custom error handler |
 | `onReady` | function | `undefined` | Callback when connection is established |
 
-## OVH Logs Data Platform
+### ⚠️ Security Note
 
-This transport is optimized for OVH Logs Data Platform but works with any Graylog instance.
-For OVH, use the default host/port and provide your token via `staticMeta`:
+The default protocol is **`tls`** to ensure logs are transmitted securely over encrypted connections. This is important when:
+- Sending logs over untrusted networks (internet, shared corporate networks)
+- Including authentication tokens in `staticMeta` (e.g., `'X-OVH-TOKEN'`)
+- Logging sensitive data (PII, API keys, internal URLs)
+
+Only use `protocol: 'tcp'` for local development when Graylog is running on `localhost`.
+
+## Using with Authentication Tokens
+
+Some Graylog services require authentication tokens to be sent with every log message. Use `staticMeta` to include these tokens and any other metadata that should be sent with **all** log messages:
 
 ```javascript
 const transport = require('pino-graylog-transport');
 
+// Example: OVH Logs Data Platform
 const stream = transport({
+  host: 'bhs1.logs.ovh.com',
+  port: 12202,
+  protocol: 'tls',
   staticMeta: {
-    '_X-OVH-TOKEN': 'your-token-here'
+    'X-OVH-TOKEN': 'your-ovh-token-here'
+  }
+});
+
+// Example: Generic cloud provider with token
+const stream = transport({
+  host: 'graylog.example.com',
+  port: 12201,
+  protocol: 'tls',
+  staticMeta: {
+    token: 'your-auth-token',
+    environment: 'production',
+    datacenter: 'us-east-1'
   }
 });
 ```
+
+All fields in `staticMeta` will be included in every GELF message with an underscore prefix (e.g., `_X-OVH-TOKEN`, `_token`, `_environment`).
+
+## Understanding Configuration Fields
+
+### `facility` vs `hostname` vs `staticMeta`
+
+These three configuration options serve different purposes:
+
+| Field | Purpose | Example | GELF Field | When to Use |
+|-------|---------|---------|------------|-------------|
+| `facility` | **Application/service identifier** | `'api-gateway'`, `'auth-service'` | `_facility` | Identify which application/microservice sent the log |
+| `hostname` | **Machine/server identifier** | `'web-server-01'`, `'us-east-1a'` | `host` | Identify which machine/container/pod sent the log |
+| `staticMeta` | **Context metadata** | `{ token: 'abc', env: 'prod' }` | `_token`, `_env` | Add authentication tokens or contextual info |
+
+### Example: Microservices Architecture
+
+```javascript
+// API Gateway service running on server 1
+transport({
+  facility: 'api-gateway',        // What service?
+  hostname: 'web-server-01',      // Which machine?
+  staticMeta: {
+    environment: 'production',    // Extra context
+    region: 'us-east-1',
+    version: '2.1.0'
+  }
+});
+
+// Auth Service running on server 2
+transport({
+  facility: 'auth-service',       // What service?
+  hostname: 'web-server-02',      // Which machine?
+  staticMeta: {
+    environment: 'production',
+    region: 'us-east-1',
+    version: '1.5.3'
+  }
+});
+```
+
+In Graylog, you can then:
+- Filter by `_facility:api-gateway` to see all API gateway logs
+- Filter by `host:web-server-01` to see all logs from that server
+- Filter by `_environment:production` to see production logs across all services
 
 ## Local Development with Docker
 
@@ -77,7 +150,7 @@ This repository includes a Docker Compose configuration to run Graylog locally f
 ```bash
 npm run docker:up
 # or
-docker-compose up -d
+docker compose up -d
 ```
 
 Wait about 30 seconds for Graylog to fully start, then run the setup script to create the GELF inputs:
@@ -107,9 +180,11 @@ docker compose down
 const pino = require('pino');
 const transport = require('pino-graylog-transport');
 
-const logger = pino(await transport({
+// For local development (localhost)
+const logger = pino(transport({
   host: 'localhost',
-  port: 12201
+  port: 12201,
+  protocol: 'tcp'  // Safe to use TCP for localhost
 }));
 
 logger.info('Application started');
