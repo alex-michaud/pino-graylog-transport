@@ -6,16 +6,20 @@ import { MessageQueue } from './message-queue'
 import { SocketConnectionManager } from './socket-connection'
 
 export type GraylogTransportOpts = {
+  // Connection configuration
   host?: string
   port?: number
   protocol?: 'tcp' | 'tls'
+  // Static metadata sent with every log message (e.g., tokens, environment, tags)
   staticMeta?: Record<string, unknown>
+  // Log metadata
   facility?: string
   hostname?: string
+  // Callbacks
   onError?: (error: Error, context?: Record<string, unknown>) => void
   onReady?: (success: boolean, error?: Error) => void
+  // Queue configuration
   maxQueueSize?: number
-  // New options
   waitForDrain?: boolean // if true, wait for socket 'drain' before signaling write completion
   dropWhenFull?: boolean // if true, drop new messages when internal queue is full; otherwise drop oldest
   autoConnect?: boolean // if false, do not attempt to connect automatically in constructor
@@ -48,9 +52,9 @@ export class GraylogWritable extends Writable {
   constructor(opts: GraylogTransportOpts) {
     super({ objectMode: true })
 
-    this.host = opts.host ?? 'bhs1.logs.ovh.com'
-    this.port = opts.port ?? 12202
-    this.protocol = opts.protocol ?? 'tls'
+    this.host = opts.host ?? 'localhost'
+    this.port = opts.port ?? 12201
+    this.protocol = opts.protocol ?? 'tcp'
     this.staticMeta = opts.staticMeta ?? {}
     this.hostname = opts.hostname ?? os.hostname()
     this.facility = opts.facility ?? this.hostname

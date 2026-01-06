@@ -25,7 +25,7 @@ const pinoLog = {
 
 const hostname = 'benchmark-host'
 const facility = 'benchmark-app'
-const staticMeta = { _env: 'production' }
+const options = { _env: 'production' }
 
 // We benchmark formatting logic only (no network I/O)
 group('GELF Formatting', () => {

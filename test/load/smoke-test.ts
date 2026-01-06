@@ -11,7 +11,7 @@ const logDuration = new Trend('log_duration')
 const successRate = new Rate('success_rate')
 
 // Test configuration
-export const options: Options = {
+export const staticMeta: Options = {
   stages: [
     { duration: '5s', target: 5 }, // Ramp up to 5 VUs
     { duration: '10s', target: 5 }, // Stay at 5 VUs
