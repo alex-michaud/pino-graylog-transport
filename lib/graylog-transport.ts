@@ -23,7 +23,7 @@ export type GraylogTransportOpts = {
   maxQueueSize?: number
   waitForDrain?: boolean // if true, wait for socket 'drain' before signaling write completion
   dropWhenFull?: boolean // if true, drop new messages when internal queue is full; otherwise drop oldest
-  autoConnect?: boolean // if false, do not attempt to connect automatically in constructor
+  autoConnect?: boolean // if false, do not attempt to connect automatically in constructor (only applies to TCP/TLS; UDP always initializes since it's connectionless)
 }
 
 /**
@@ -92,7 +92,8 @@ export class GraylogWritable extends Writable {
 
     // Initialize based on protocol
     if (this.protocol === 'udp') {
-      // UDP is connectionless - create client and mark as ready immediately
+      // UDP is connectionless - always initialize regardless of autoConnect
+      // (autoConnect doesn't apply to UDP since there's no connection to establish)
       this.udpClient = new UdpClient({
         host: this.host,
         port: this.port,

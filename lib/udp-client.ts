@@ -42,6 +42,11 @@ export interface UdpClientOpts {
 export class UdpClient {
   private nodeSocket: dgram.Socket | null = null
   private bunSocket: BunUdpSocket | null = null
+  private bunSocketInitializing = false
+  private pendingMessages: Array<{
+    message: string
+    callback?: (error?: Error | null) => void
+  }> = []
   private readonly host: string
   private readonly port: number
   private readonly handleError: (
@@ -62,11 +67,15 @@ export class UdpClient {
   /**
    * Initialize the UDP socket.
    * Uses Bun.udpSocket() if running in Bun, otherwise Node's dgram.
+   * In Bun mode, Node socket is initialized immediately as fallback while Bun socket initializes async.
    */
   connect(): void {
-    if (this.nodeSocket || this.bunSocket) return
+    if (this.nodeSocket || this.bunSocket || this.bunSocketInitializing) return
 
     if (isBun && (globalThis as unknown as BunGlobal).Bun?.udpSocket) {
+      // In Bun mode: initialize Node socket as immediate fallback
+      // while Bun socket initializes asynchronously
+      this.connectNode()
       this.connectBun()
     } else {
       this.connectNode()
@@ -89,6 +98,8 @@ export class UdpClient {
     const Bun = (globalThis as unknown as BunGlobal).Bun
     if (!Bun?.udpSocket) return
 
+    this.bunSocketInitializing = true
+
     // Bun's udpSocket is async, but we handle it gracefully
     Bun.udpSocket({
       socket: {
@@ -103,37 +114,69 @@ export class UdpClient {
     })
       .then((socket) => {
         this.bunSocket = socket
+        this.bunSocketInitializing = false
+
+        // Close Node socket now that Bun socket is ready (prefer Bun)
+        if (this.nodeSocket) {
+          this.nodeSocket.close()
+          this.nodeSocket = null
+        }
+
+        // Process any pending messages
+        this.flushPendingMessages()
       })
       .catch((err) => {
+        this.bunSocketInitializing = false
         this.handleError(err, {
           host: this.host,
           port: this.port,
           reason: 'Failed to create Bun UDP socket',
         })
-        // Fallback to Node.js dgram
-        this.connectNode()
+        // Keep using Node.js dgram as fallback (already initialized)
+        this.flushPendingMessages()
       })
+  }
+
+  private flushPendingMessages(): void {
+    const messages = [...this.pendingMessages]
+    this.pendingMessages = []
+
+    for (const { message, callback } of messages) {
+      this.send(message, callback)
+    }
   }
 
   /**
    * Send a message via UDP.
    * UDP is fire-and-forget - no guarantee of delivery.
+   * If Bun socket is initializing, messages are queued and sent when ready.
    */
   send(message: string, callback?: (error?: Error | null) => void): void {
-    if (!this.nodeSocket && !this.bunSocket) {
+    if (!this.nodeSocket && !this.bunSocket && !this.bunSocketInitializing) {
       this.connect()
+    }
+
+    // If Bun socket is still initializing, queue the message
+    if (this.bunSocketInitializing && !this.bunSocket) {
+      this.pendingMessages.push({ message, callback })
+      return
     }
 
     const buffer = Buffer.from(message)
 
     // GELF over UDP has a max payload size of 8192 bytes (uncompressed)
+    // Reject oversized messages to prevent truncation/rejection by Graylog
+    // TODO: Implement GELF chunking for messages > 8192 bytes
     if (buffer.length > 8192) {
-      this.handleError(
-        new Error(
-          `GELF UDP message exceeds 8192 bytes (${buffer.length}). Message may be truncated.`,
-        ),
-        { messageSize: buffer.length },
+      const error = new Error(
+        `GELF UDP message exceeds 8192 bytes (${buffer.length}). Message rejected. Consider using TCP/TLS for large messages or implement chunking.`,
       )
+      this.handleError(error, {
+        messageSize: buffer.length,
+        maxSize: 8192,
+      })
+      callback?.(error)
+      return
     }
 
     // Use Bun socket if available

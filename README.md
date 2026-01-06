@@ -56,6 +56,7 @@ logger.info('Hello Graylog!');
 | `maxQueueSize` | number | `1000` | Max messages to queue when disconnected |
 | `onError` | function | `console.error` | Custom error handler |
 | `onReady` | function | `undefined` | Callback when connection is established |
+| `autoConnect` | boolean | `true` | If `false`, don't establish connection on initialization. Only applies to TCP/TLS; UDP always initializes immediately since it's connectionless. |
 
 ### ⚠️ Security Note
 
@@ -241,7 +242,11 @@ const logger = pino(await transport({
 - You're logging to a local Graylog instance
 - Network reliability is high
 
-UDP GELF messages are limited to ~8KB. Larger messages may be truncated.
+**UDP Limitations:**
+- Messages are limited to **8KB (8192 bytes)** per GELF UDP specification
+- Messages exceeding this size are **rejected** (not sent)
+- For large messages, use TCP or TLS protocols instead
+- No delivery guarantees (fire-and-forget)
 
 **Bun Runtime:** When running under [Bun](https://bun.sh/), the UDP transport automatically uses Bun's native `Bun.udpSocket()` API for better performance. Falls back to Node's `dgram` module if unavailable.
 
