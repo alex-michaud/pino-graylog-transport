@@ -27,7 +27,8 @@ const transport = require('pino-graylog-transport');
 const transportInstance = transport({
   host: 'graylog.example.com',
   port: 12201,
-  // Use 'tls' for encrypted connections to remote Graylog servers
+  // TLS is the default for secure transmission over networks
+  // Use protocol: 'tcp' only for local development (localhost)
   protocol: 'tls',
   facility: 'my-app',
   staticMeta: {
@@ -48,13 +49,22 @@ logger.info('Hello Graylog!');
 |--------|------|---------|-------------|
 | `host` | string | `'localhost'` | Graylog server hostname |
 | `port` | number | `12201` | Graylog GELF input port (standard GELF TCP port) |
-| `protocol` | string | `'tcp'` | Protocol to use (`'tcp'` or `'tls'`) |
+| `protocol` | string | `'tls'` | Protocol to use (`'tcp'` or `'tls'`). **Default is `'tls'` for security** - uses encrypted connection to prevent exposure of sensitive data. Use `'tcp'` only for local development. |
 | `facility` | string | `hostname` | **Application/service identifier** sent with every message. Used to categorize logs by application in Graylog (e.g., `'api-gateway'`, `'auth-service'`). Sent as `_facility` additional field per [GELF spec](https://go2docs.graylog.org/current/getting_in_log_data/gelf.html). |
 | `hostname` | string | `os.hostname()` | Host field in GELF messages (the machine/server name) |
 | `staticMeta` | object | `{}` | Static fields included in **every** log message (e.g., auth tokens, environment, datacenter). These are sent as GELF custom fields with underscore prefix. |
 | `maxQueueSize` | number | `1000` | Max messages to queue when disconnected |
 | `onError` | function | `console.error` | Custom error handler |
 | `onReady` | function | `undefined` | Callback when connection is established |
+
+### ⚠️ Security Note
+
+The default protocol is **`tls`** to ensure logs are transmitted securely over encrypted connections. This is important when:
+- Sending logs over untrusted networks (internet, shared corporate networks)
+- Including authentication tokens in `staticMeta` (e.g., `'X-OVH-TOKEN'`)
+- Logging sensitive data (PII, API keys, internal URLs)
+
+Only use `protocol: 'tcp'` for local development when Graylog is running on `localhost`.
 
 ## Using with Authentication Tokens
 
@@ -170,9 +180,11 @@ docker compose down
 const pino = require('pino');
 const transport = require('pino-graylog-transport');
 
+// For local development (localhost)
 const logger = pino(await transport({
   host: 'localhost',
-  port: 12201
+  port: 12201,
+  protocol: 'tcp'  // Safe to use TCP for localhost
 }));
 
 logger.info('Application started');

@@ -54,7 +54,7 @@ export class GraylogWritable extends Writable {
 
     this.host = opts.host ?? 'localhost'
     this.port = opts.port ?? 12201
-    this.protocol = opts.protocol ?? 'tcp'
+    this.protocol = opts.protocol ?? 'tls'
     this.staticMeta = opts.staticMeta ?? {}
     this.hostname = opts.hostname ?? os.hostname()
     this.facility = opts.facility ?? this.hostname
