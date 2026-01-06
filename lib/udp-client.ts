@@ -43,10 +43,7 @@ export class UdpClient {
   private nodeSocket: dgram.Socket | null = null
   private bunSocket: BunUdpSocket | null = null
   private bunSocketInitializing = false
-  private pendingMessages: Array<{
-    message: string
-    callback?: (error?: Error | null) => void
-  }> = []
+  private isClosed = false
   private readonly host: string
   private readonly port: number
   private readonly handleError: (
@@ -71,6 +68,7 @@ export class UdpClient {
    */
   connect(): void {
     if (this.nodeSocket || this.bunSocket || this.bunSocketInitializing) return
+    this.isClosed = false
 
     if (isBun && (globalThis as unknown as BunGlobal).Bun?.udpSocket) {
       // In Bun mode: initialize Node socket as immediate fallback
@@ -113,53 +111,46 @@ export class UdpClient {
       },
     })
       .then((socket) => {
-        this.bunSocket = socket
         this.bunSocketInitializing = false
+
+        // If client was closed while initializing, clean up immediately
+        if (this.isClosed) {
+          socket.stop()
+          return
+        }
+
+        this.bunSocket = socket
 
         // Close Node socket now that Bun socket is ready (prefer Bun)
         if (this.nodeSocket) {
           this.nodeSocket.close()
           this.nodeSocket = null
         }
-
-        // Process any pending messages
-        this.flushPendingMessages()
       })
       .catch((err) => {
         this.bunSocketInitializing = false
+        if (this.isClosed) return
+
         this.handleError(err, {
           host: this.host,
           port: this.port,
           reason: 'Failed to create Bun UDP socket',
         })
-        // Keep using Node.js dgram as fallback (already initialized)
-        this.flushPendingMessages()
+
+        // Ensure Node socket is available as fallback
+        if (!this.nodeSocket) {
+          this.connectNode()
+        }
       })
-  }
-
-  private flushPendingMessages(): void {
-    const messages = [...this.pendingMessages]
-    this.pendingMessages = []
-
-    for (const { message, callback } of messages) {
-      this.send(message, callback)
-    }
   }
 
   /**
    * Send a message via UDP.
    * UDP is fire-and-forget - no guarantee of delivery.
-   * If Bun socket is initializing, messages are queued and sent when ready.
    */
   send(message: string, callback?: (error?: Error | null) => void): void {
     if (!this.nodeSocket && !this.bunSocket && !this.bunSocketInitializing) {
       this.connect()
-    }
-
-    // If Bun socket is still initializing, queue the message
-    if (this.bunSocketInitializing && !this.bunSocket) {
-      this.pendingMessages.push({ message, callback })
-      return
     }
 
     const buffer = Buffer.from(message)
@@ -196,7 +187,7 @@ export class UdpClient {
       return
     }
 
-    // Fallback to Node.js dgram
+    // Fallback to Node.js dgram (available even during Bun initialization)
     this.nodeSocket?.send(
       buffer,
       0,
@@ -228,6 +219,9 @@ export class UdpClient {
    * Close the UDP socket.
    */
   close(): void {
+    this.isClosed = true
+    this.bunSocketInitializing = false
+
     if (this.nodeSocket) {
       this.nodeSocket.close()
       this.nodeSocket = null
