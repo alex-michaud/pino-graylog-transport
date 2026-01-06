@@ -181,7 +181,7 @@ const pino = require('pino');
 const transport = require('pino-graylog-transport');
 
 // For local development (localhost)
-const logger = pino(await transport({
+const logger = pino(transport({
   host: 'localhost',
   port: 12201,
   protocol: 'tcp'  // Safe to use TCP for localhost
