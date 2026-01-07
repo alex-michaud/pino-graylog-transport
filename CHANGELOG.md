@@ -1,3 +1,13 @@
+## [1.1.0](https://github.com/alex-michaud/pino-graylog-transport/compare/v1.0.2...v1.1.0) (2026-01-07)
+
+### Features
+
+* refactor: rename Graylog transport types for clarity ([8435617](https://github.com/alex-michaud/pino-graylog-transport/commit/84356175b22aed4b79e739b36bff2bbd1af0b398))
+
+### Documentation
+
+* update benchmark results for pino-graylog-transport performance ([05f0feb](https://github.com/alex-michaud/pino-graylog-transport/commit/05f0feb41c94c5d40718453580d124e04a906f1f))
+
 ## [1.0.2](https://github.com/alex-michaud/pino-graylog-transport/compare/v1.0.1...v1.0.2) (2026-01-07)
 
 ### Bug Fixes
