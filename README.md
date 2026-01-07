@@ -15,14 +15,28 @@ A Pino transport module that sends log messages to Graylog using the GELF (Grayl
 ## Installation
 
 ```bash
-npm install pino-graylog-transport pino
+npm install @alex-michaud/pino-graylog-transport pino
+```
+
+## Publishing & Installation
+
+This package is published under the scope `@alex-michaud`. To install, use the following command:
+
+```bash
+npm install @alex-michaud/pino-graylog-transport
+```
+
+If you encounter permissions issues, you may need to add `--access public` to the install command:
+
+```bash
+npm install @alex-michaud/pino-graylog-transport --access public
 ```
 
 ## Quick Start
 
 ```javascript
 const pino = require('pino');
-const transport = require('pino-graylog-transport');
+const transport = require('@alex-michaud/pino-graylog-transport');
 
 const transportInstance = transport({
   host: 'graylog.example.com',
@@ -72,7 +86,7 @@ Only use `protocol: 'tcp'` for local development when Graylog is running on `loc
 Some Graylog services require authentication tokens to be sent with every log message. Use `staticMeta` to include these tokens and any other metadata that should be sent with **all** log messages:
 
 ```javascript
-const transport = require('pino-graylog-transport');
+const transport = require('@alex-michaud/pino-graylog-transport');
 
 // Example: OVH Logs Data Platform
 const stream = transport({
@@ -179,7 +193,7 @@ docker compose down
 
 ```javascript
 const pino = require('pino');
-const transport = require('pino-graylog-transport');
+const transport = require('@alex-michaud/pino-graylog-transport');
 
 // For local development (localhost)
 const logger = pino(transport({
@@ -430,7 +444,7 @@ npm run benchmark
 
 ### Comparison Load Test (pino vs winston)
 
-This test compares the real-world performance of `pino-graylog-transport` against `winston + winston-log2gelf`:
+This test compares the real-world performance of `@alex-michaud/pino-graylog-transport` against `winston + winston-log2gelf`:
 
 ```bash
 # Start Graylog
@@ -446,7 +460,7 @@ npm run benchmark:load
 
 The test runs three scenarios in parallel:
 - **Baseline**: No logging (measures pure HTTP overhead)
-- **Pino**: Using pino-graylog-transport
+- **Pino**: Using @alex-michaud/pino-graylog-transport
 - **Winston**: Using winston + winston-log2gelf
 
 Compare the `*_duration` metrics to see the logging overhead for each library.
