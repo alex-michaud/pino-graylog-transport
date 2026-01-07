@@ -6,7 +6,7 @@ import { MessageQueue } from './message-queue'
 import { SocketConnectionManager } from './socket-connection'
 import { UdpClient } from './udp-client'
 
-export type GraylogTransportOpts = {
+export type PinoGraylogTransportOptions = {
   // Connection configuration
   host?: string
   port?: number
@@ -29,7 +29,7 @@ export type GraylogTransportOpts = {
 /**
  * A Writable stream that sends logs to Graylog and exposes status methods.
  */
-export class GraylogWritable extends Writable {
+export class PinoGraylogTransport extends Writable {
   private socket: net.Socket | null = null
   private udpClient: UdpClient | null = null
   private connectionPromise: Promise<net.Socket> | null = null
@@ -51,7 +51,7 @@ export class GraylogWritable extends Writable {
   ) => void
   private readonly onReady?: (success: boolean, error?: Error) => void
 
-  constructor(opts: GraylogTransportOpts) {
+  constructor(opts: PinoGraylogTransportOptions) {
     super({ objectMode: true })
 
     this.host = opts.host ?? 'localhost'
@@ -289,7 +289,7 @@ export class GraylogWritable extends Writable {
  * @returns A GraylogWritable stream compatible with Pino's transport interface.
  */
 export default function graylogTransport(
-  opts: GraylogTransportOpts = {},
-): GraylogWritable {
-  return new GraylogWritable(opts)
+  opts: PinoGraylogTransportOptions = {},
+): PinoGraylogTransport {
+  return new PinoGraylogTransport(opts)
 }

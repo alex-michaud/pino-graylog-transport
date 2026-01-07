@@ -425,15 +425,15 @@ The GELF formatting logic is optimized for speed. Benchmarks were run using [mit
 
 | Benchmark | Time | Description |
 |-----------|------|-------------|
-| JSON.stringify (Raw) | 614 ns | Baseline - just serialization, no transformation |
-| **pino-graylog-transport** | **1.87 µs** | Our GELF formatter |
-| Manual GELF Construction | 2.21 µs | Simulated naive implementation |
+| JSON.stringify (Raw) | 615 ns | Baseline - just serialization, no transformation |
+| **pino-graylog-transport** | **1.29 µs** | Our GELF formatter |
+| Manual GELF Construction | 1.88 µs | Simulated naive implementation |
 
 ### Key Takeaways
 
-- ✅ **18% faster** than a naive manual GELF construction approach
-- ✅ **~535,000 messages/second** theoretical formatting throughput (single-threaded)
-- ✅ **Negligible overhead**: The ~1.25 µs formatting overhead is 500-50,000x smaller than typical network latency
+- ✅ **31% faster** than a naive manual GELF construction approach
+- ✅ **~775,000 messages/second** theoretical formatting throughput (single-threaded)
+- ✅ **Negligible overhead**: The ~0.67 µs formatting overhead is 1000-100,000x smaller than typical network latency
 
 ### Run Benchmarks
 

@@ -1,6 +1,8 @@
 import { Writable } from 'node:stream'
 import { expect } from 'chai'
-import graylogTransport, { GraylogWritable } from '../../lib/graylog-transport'
+import graylogTransport, {
+  PinoGraylogTransport,
+} from '../../lib/graylog-transport'
 
 describe('Graylog Transport', () => {
   it('should create a writable stream', () => {
@@ -12,7 +14,7 @@ describe('Graylog Transport', () => {
     })
 
     expect(stream).to.be.instanceOf(Writable)
-    expect(stream).to.be.instanceOf(GraylogWritable)
+    expect(stream).to.be.instanceOf(PinoGraylogTransport)
   })
 
   it('should use default options', () => {

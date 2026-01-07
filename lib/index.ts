@@ -1,3 +1,7 @@
-import graylogTransport, { GraylogWritable } from './graylog-transport'
-export { GraylogWritable }
+import graylogTransport, {
+  PinoGraylogTransport,
+  PinoGraylogTransportOptions,
+} from './graylog-transport'
+
+export { PinoGraylogTransport, PinoGraylogTransportOptions }
 export default graylogTransport
