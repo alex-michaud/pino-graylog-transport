@@ -1,6 +1,9 @@
 {
   "name": "@alex-michaud/pino-graylog-transport",
   "version": "1.0.0",
+  "publishConfig": {
+    "access": "public"
+  },
   "description": "Pino transport that sends log to graylog",
   "author": "Alexandre Michaud <alex-michaud@users.noreply.github.com>",
   "license": "MIT",
