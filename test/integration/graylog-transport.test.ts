@@ -1,5 +1,5 @@
 import pino from 'pino'
-import type { GraylogTransportOpts } from '../../lib/graylog-transport'
+import type { PinoGraylogTransportOptions } from '../../lib/graylog-transport'
 import transport from '../../lib/index'
 
 describe('Integration Tests', () => {
@@ -14,7 +14,7 @@ describe('Integration Tests', () => {
         // allow long enough for connection attempts in CI
         this.timeout(5000)
 
-        const opts: GraylogTransportOpts = {
+        const opts: PinoGraylogTransportOptions = {
           host: 'localhost',
           port: 12201, // Ensure your local Graylog is listening on this TCP port
           protocol: 'tcp',
