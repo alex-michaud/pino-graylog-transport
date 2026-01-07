@@ -4,12 +4,13 @@ import { Writable } from 'node:stream'
 import { formatGelfMessage } from './gelf-formatter'
 import { MessageQueue } from './message-queue'
 import { SocketConnectionManager } from './socket-connection'
+import { UdpClient } from './udp-client'
 
 export type GraylogTransportOpts = {
   // Connection configuration
   host?: string
   port?: number
-  protocol?: 'tcp' | 'tls'
+  protocol?: 'tcp' | 'tls' | 'udp'
   // Static metadata sent with every log message (e.g., tokens, environment, tags)
   staticMeta?: Record<string, unknown>
   // Log metadata
@@ -22,7 +23,7 @@ export type GraylogTransportOpts = {
   maxQueueSize?: number
   waitForDrain?: boolean // if true, wait for socket 'drain' before signaling write completion
   dropWhenFull?: boolean // if true, drop new messages when internal queue is full; otherwise drop oldest
-  autoConnect?: boolean // if false, do not attempt to connect automatically in constructor
+  autoConnect?: boolean // if false, do not attempt to connect automatically in constructor (only applies to TCP/TLS; UDP always initializes since it's connectionless)
 }
 
 /**
@@ -30,6 +31,7 @@ export type GraylogTransportOpts = {
  */
 export class GraylogWritable extends Writable {
   private socket: net.Socket | null = null
+  private udpClient: UdpClient | null = null
   private connectionPromise: Promise<net.Socket> | null = null
   private messageQueue: MessageQueue
   private initializationAttempted = false
@@ -38,7 +40,7 @@ export class GraylogWritable extends Writable {
 
   private readonly host: string
   private readonly port: number
-  private readonly protocol: 'tcp' | 'tls'
+  private readonly protocol: 'tcp' | 'tls' | 'udp'
   private readonly staticMeta: Record<string, unknown>
   private readonly hostname: string
   private readonly facility: string
@@ -88,8 +90,23 @@ export class GraylogWritable extends Writable {
       })
     this.onReady = opts.onReady
 
-    // Establish initial connection unless explicitly disabled
-    if (opts.autoConnect !== false) {
+    // Initialize based on protocol
+    if (this.protocol === 'udp') {
+      // UDP is connectionless - always initialize regardless of autoConnect
+      // (autoConnect doesn't apply to UDP since there's no connection to establish)
+      this.udpClient = new UdpClient({
+        host: this.host,
+        port: this.port,
+        onError: this.handleError,
+      })
+      this.udpClient.connect()
+      this.ready = true
+      this.initializationAttempted = true
+      if (this.onReady) {
+        this.onReady(true)
+      }
+    } else if (opts.autoConnect !== false) {
+      // TCP/TLS: Establish initial connection unless explicitly disabled
       this.connect()
         .then(() => {
           // Connection successful
@@ -116,6 +133,9 @@ export class GraylogWritable extends Writable {
   }
 
   isConnected(): boolean {
+    if (this.protocol === 'udp') {
+      return this.udpClient?.isReady() ?? false
+    }
     return this.socket !== null && !this.socket.destroyed
   }
 
@@ -140,6 +160,14 @@ export class GraylogWritable extends Writable {
       this.facility,
       this.staticMeta,
     )
+
+    // UDP: Send directly without null terminator (not required for UDP GELF)
+    if (this.protocol === 'udp' && this.udpClient) {
+      this.udpClient.send(gelfStr, callback)
+      return
+    }
+
+    // TCP/TLS: Append null terminator as message delimiter
     const message = `${gelfStr}\0`
 
     const socket = this.socket
@@ -189,6 +217,9 @@ export class GraylogWritable extends Writable {
   ): void {
     if (this.socket && !this.socket.destroyed) {
       this.socket.destroy()
+    }
+    if (this.udpClient) {
+      this.udpClient.close()
     }
     callback(error)
   }
