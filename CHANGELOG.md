@@ -1,3 +1,9 @@
+## [1.0.1](https://github.com/alex-michaud/pino-graylog-transport/compare/v1.0.0...v1.0.1) (2026-01-07)
+
+### Bug Fixes
+
+* force initial release bump ([c6be6a3](https://github.com/alex-michaud/pino-graylog-transport/commit/c6be6a3d4a591475a59a4c26cb3bdac25dd733de))
+
 ## 1.0.0 (2026-01-07)
 
 ### Features
