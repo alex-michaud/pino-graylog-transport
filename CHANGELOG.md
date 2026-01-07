@@ -1,3 +1,9 @@
+## [1.0.2](https://github.com/alex-michaud/pino-graylog-transport/compare/v1.0.1...v1.0.2) (2026-01-07)
+
+### Bug Fixes
+
+* set package access to public ([be37b15](https://github.com/alex-michaud/pino-graylog-transport/commit/be37b159ecd05e6e51b481a85650e7392461945b))
+
 ## [1.0.1](https://github.com/alex-michaud/pino-graylog-transport/compare/v1.0.0...v1.0.1) (2026-01-07)
 
 ### Bug Fixes
