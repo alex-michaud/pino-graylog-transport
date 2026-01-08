@@ -1,70 +1,12 @@
 {
   "name": "@alex-michaud/pino-graylog-transport",
   "version": "1.1.0",
-  "publishConfig": {
-    "access": "public"
-  },
-  "description": "Pino transport that sends log to graylog",
   "author": "Alexandre Michaud <alex-michaud@users.noreply.github.com>",
-  "license": "MIT",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
-  "files": [
-    "dist/index.js",
-    "dist/index.d.ts",
-    "dist/graylog-transport.js",
-    "dist/graylog-transport.d.ts",
-    "dist/gelf-formatter.js",
-    "dist/gelf-formatter.d.ts",
-    "dist/message-queue.js",
-    "dist/message-queue.d.ts",
-    "dist/socket-connection.js",
-    "dist/socket-connection.d.ts",
-    "dist/udp-client.js",
-    "dist/udp-client.d.ts",
-    "README.md",
-    "LICENSE"
-  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/alex-michaud/pino-graylog-transport.git"
   },
-  "bugs": {
-    "url": "https://github.com/alex-michaud/pino-graylog-transport/issues"
-  },
-  "homepage": "https://github.com/alex-michaud/pino-graylog-transport#readme",
-  "scripts": {
-    "build": "tsc",
-    "preinstall": "node scripts/check-node-version.js",
-    "prepublishOnly": "npm run build",
-    "test": "npm run test:unit",
-    "test:unit": "mocha -r ts-node/register 'test/unit/**/*.test.ts'",
-    "test:integration": "EXECUTE_INTEGRATION=true mocha -r ts-node/register 'test/integration/**/*.test.ts'",
-    "test:all": "mocha -r ts-node/register 'test/{unit,integration}/**/*.test.ts'",
-    "test:load": "esbuild test/load/load-test.ts --bundle --outfile=dist/load-test.js --target=es2017 --format=esm --external:k6 --external:k6/* && (command -v k6 >/dev/null && k6 run dist/load-test.js || echo \"k6 not found. Install k6 to run load tests: https://k6.io/docs/getting-started/installation/\")",
-    "test:smoke": "esbuild test/load/smoke-test.ts --bundle --outfile=dist/smoke-test.js --target=es2017 --format=esm --external:k6 --external:k6/* && (command -v k6 >/dev/null && k6 run dist/smoke-test.js || echo \"k6 not found. Install k6 to run load tests: https://k6.io/docs/getting-started/installation/\")",
-    "benchmark": "ts-node test/benchmark/benchmark.ts",
-    "benchmark:load": "esbuild test/benchmark/comparison-load-test.ts --bundle --outfile=dist/comparison-load-test.js --target=es2017 --format=esm --external:k6 --external:k6/* --tree-shaking=false --log-level=info && k6 run dist/comparison-load-test.js",
-    "start:comparison-server": "ts-node test/benchmark/comparison-server.ts",
-    "start:load-server": "ts-node test/load/server.ts",
-    "lint": "biome check --write .",
-    "format": "biome format --write .",
-    "check": "biome check --write .",
-    "ci": "biome ci .",
-    "docker:up": "docker compose up -d",
-    "docker:down": "docker compose down",
-    "docker:setup": "ts-node scripts/setup-graylog.ts"
-  },
-  "keywords": [
-    "pino",
-    "transport",
-    "graylog",
-    "logging",
-    "gelf"
-  ],
-  "dependencies": {
-    "pino-abstract-transport": "3.0.0"
-  },
+  "main": "dist/index.js",
   "devDependencies": {
     "@biomejs/biome": "2.3.11",
     "@semantic-release/changelog": "^6.0.3",
@@ -89,7 +31,62 @@
     "winston-log2gelf": "^2.4.1",
     "winston-transport": "^4.9.0"
   },
+  "bugs": {
+    "url": "https://github.com/alex-michaud/pino-graylog-transport/issues"
+  },
+  "description": "Pino transport that sends log to graylog",
   "engines": {
     "node": ">=22.0.0"
-  }
+  },
+  "files": [
+    "dist/index.js",
+    "dist/index.d.ts",
+    "dist/graylog-transport.js",
+    "dist/graylog-transport.d.ts",
+    "dist/gelf-formatter.js",
+    "dist/gelf-formatter.d.ts",
+    "dist/message-queue.js",
+    "dist/message-queue.d.ts",
+    "dist/socket-connection.js",
+    "dist/socket-connection.d.ts",
+    "dist/udp-client.js",
+    "dist/udp-client.d.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "homepage": "https://github.com/alex-michaud/pino-graylog-transport#readme",
+  "keywords": [
+    "pino",
+    "transport",
+    "graylog",
+    "logging",
+    "gelf"
+  ],
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc",
+    "preinstall": "node scripts/check-node-version.js",
+    "prepublishOnly": "npm run build",
+    "test": "npm run test:unit",
+    "test:unit": "mocha -r ts-node/register 'test/unit/**/*.test.ts'",
+    "test:integration": "EXECUTE_INTEGRATION=true mocha -r ts-node/register 'test/integration/**/*.test.ts'",
+    "test:all": "mocha -r ts-node/register 'test/{unit,integration}/**/*.test.ts'",
+    "test:load": "esbuild test/load/load-test.ts --bundle --outfile=dist/load-test.js --target=es2017 --format=esm --external:k6 --external:k6/* && (command -v k6 >/dev/null && k6 run dist/load-test.js || echo \"k6 not found. Install k6 to run load tests: https://k6.io/docs/getting-started/installation/\")",
+    "test:smoke": "esbuild test/load/smoke-test.ts --bundle --outfile=dist/smoke-test.js --target=es2017 --format=esm --external:k6 --external:k6/* && (command -v k6 >/dev/null && k6 run dist/smoke-test.js || echo \"k6 not found. Install k6 to run load tests: https://k6.io/docs/getting-started/installation/\")",
+    "benchmark": "ts-node test/benchmark/benchmark.ts",
+    "benchmark:load": "esbuild test/benchmark/comparison-load-test.ts --bundle --outfile=dist/comparison-load-test.js --target=es2017 --format=esm --external:k6 --external:k6/* --tree-shaking=false --log-level=info && k6 run dist/comparison-load-test.js",
+    "start:comparison-server": "ts-node test/benchmark/comparison-server.ts",
+    "start:load-server": "ts-node test/load/server.ts",
+    "lint": "biome check --write .",
+    "format": "biome format --write .",
+    "check": "biome check --write .",
+    "ci": "biome ci .",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "docker:setup": "ts-node scripts/setup-graylog.ts"
+  },
+  "types": "dist/index.d.ts"
 }
