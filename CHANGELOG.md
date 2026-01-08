@@ -1,3 +1,9 @@
+## [1.1.1](https://github.com/alex-michaud/pino-graylog-transport/compare/v1.1.0...v1.1.1) (2026-01-08)
+
+### Bug Fixes
+
+* remove unused dependencies "pino-abstract-transport" ([43b7f1c](https://github.com/alex-michaud/pino-graylog-transport/commit/43b7f1c61a44d9f1b2c9410dd958c16a06028aa5))
+
 ## [1.1.0](https://github.com/alex-michaud/pino-graylog-transport/compare/v1.0.2...v1.1.0) (2026-01-07)
 
 ### Features
