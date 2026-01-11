@@ -1,3 +1,10 @@
+## [1.1.2](https://github.com/alex-michaud/pino-graylog-transport/compare/v1.1.1...v1.1.2) (2026-01-11)
+
+### Bug Fixes
+
+* remove Node version check from release workflow ([0b2054a](https://github.com/alex-michaud/pino-graylog-transport/commit/0b2054a3c680eef91e4038e0a4ef8701127c185f))
+* remove preinstall script for node version check ([766c48e](https://github.com/alex-michaud/pino-graylog-transport/commit/766c48e6e86e2192810ab35e318d70c8e1e632bc))
+
 ## [1.1.1](https://github.com/alex-michaud/pino-graylog-transport/compare/v1.1.0...v1.1.1) (2026-01-08)
 
 ### Bug Fixes
