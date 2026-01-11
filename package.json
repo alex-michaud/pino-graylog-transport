@@ -68,7 +68,6 @@
   },
   "scripts": {
     "build": "tsc",
-    "preinstall": "node scripts/check-node-version.js",
     "prepublishOnly": "npm run build",
     "test": "npm run test:unit",
     "test:unit": "mocha -r ts-node/register 'test/unit/**/*.test.ts'",
