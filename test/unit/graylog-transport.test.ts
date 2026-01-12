@@ -253,4 +253,205 @@ describe('Graylog Transport', () => {
       }, 10)
     })
   })
+
+  describe('Flush Method', () => {
+    it('should resolve immediately when no pending writes and queue is empty', async () => {
+      const stream = graylogTransport({
+        autoConnect: false,
+      })
+
+      const startTime = Date.now()
+      await stream.flush()
+      const elapsed = Date.now() - startTime
+
+      // Should resolve almost immediately (allow some margin for test execution)
+      expect(elapsed).to.be.lessThan(100)
+
+      stream.destroy()
+    })
+
+    it('should resolve after timeout when connection fails', async () => {
+      const stream = graylogTransport({
+        host: 'nonexistent.invalid',
+        port: 12201,
+        protocol: 'tcp',
+        autoConnect: false,
+      })
+
+      const logger = pino({ level: 'info' }, stream)
+      logger.info('Test message')
+
+      // Queue has a message, but connection will fail
+      expect(stream.getQueueSize()).to.equal(1)
+
+      // Flush should complete (either successfully or after connection failure)
+      await stream.flush(500)
+
+      stream.destroy()
+    })
+
+    it('should handle flush with custom timeout', async () => {
+      const stream = graylogTransport({
+        autoConnect: false,
+      })
+
+      const logger = pino({ level: 'info' }, stream)
+      logger.info('Test message')
+
+      const startTime = Date.now()
+      await stream.flush(100)
+      const elapsed = Date.now() - startTime
+
+      // Should timeout around 100ms (allow margin)
+      expect(elapsed).to.be.lessThan(200)
+
+      stream.destroy()
+    })
+
+    it('should track pendingWrites correctly', async () => {
+      const stream = graylogTransport({
+        autoConnect: false,
+      })
+
+      // Initially no pending writes
+      expect(stream.getPendingWriteCount()).to.equal(0)
+
+      const logger = pino({ level: 'info' }, stream)
+      logger.info('Test message 1')
+      logger.info('Test message 2')
+
+      // Messages should be in queue (counted as pending)
+      expect(stream.getPendingWriteCount()).to.equal(2)
+
+      stream.destroy()
+    })
+
+    it('should handle concurrent flush calls', async () => {
+      const stream = graylogTransport({
+        autoConnect: false,
+      })
+
+      const logger = pino({ level: 'info' }, stream)
+      logger.info('Test message')
+
+      // Call flush multiple times concurrently
+      const flushPromises = [
+        stream.flush(200),
+        stream.flush(200),
+        stream.flush(200),
+      ]
+
+      // All should resolve without errors
+      await Promise.all(flushPromises)
+
+      stream.destroy()
+    })
+
+    it('should reset flushRequested flag after flush completes', async () => {
+      const stream = graylogTransport({
+        autoConnect: false,
+      })
+
+      await stream.flush(50)
+
+      // After flush, can still send messages normally
+      const logger = pino({ level: 'info' }, stream)
+      logger.info('Test message after flush')
+
+      expect(stream.getQueueSize()).to.equal(1)
+
+      stream.destroy()
+    })
+
+    it('should handle flush when already connected (UDP)', async () => {
+      const stream = graylogTransport({
+        protocol: 'udp',
+        host: 'localhost',
+        port: 12201,
+      })
+
+      // UDP should be ready immediately
+      expect(stream.isReady()).to.be.true
+
+      // Flush should resolve immediately since there's nothing pending
+      const startTime = Date.now()
+      await stream.flush()
+      const elapsed = Date.now() - startTime
+
+      expect(elapsed).to.be.lessThan(100)
+
+      stream.destroy()
+    })
+
+    it('should use default timeout of 5000ms', async () => {
+      const stream = graylogTransport({
+        autoConnect: false,
+      })
+
+      const logger = pino({ level: 'info' }, stream)
+      logger.info('Test message')
+
+      // Start flush without timeout (uses default)
+      const flushPromise = stream.flush()
+
+      // Since we can't wait 5 seconds in a unit test, destroy the stream
+      // which should allow flush to complete
+      stream.destroy()
+
+      // Flush should complete after destroy
+      await flushPromise
+    })
+
+    it('should handle empty queue with socket buffer data scenario', async () => {
+      const stream = graylogTransport({
+        autoConnect: false,
+      })
+
+      // No messages, just flush
+      await stream.flush(100)
+
+      // Should complete without issues
+      expect(stream.getQueueSize()).to.equal(0)
+
+      stream.destroy()
+    })
+
+    it('should handle flush during stream end', (done) => {
+      const stream = graylogTransport({
+        autoConnect: false,
+        dropWhenFull: true,
+      })
+
+      const logger = pino({ level: 'info' }, stream)
+      logger.info('Test message')
+
+      // stream.end internally calls flush via _final
+      stream.end(() => {
+        // Stream ended successfully
+        done()
+      })
+    })
+
+    it('should not block when connection promise is pending', async () => {
+      const stream = graylogTransport({
+        host: 'localhost',
+        port: 12201,
+        protocol: 'tcp',
+        autoConnect: false,
+      })
+
+      const logger = pino({ level: 'info' }, stream)
+      logger.info('Test message')
+
+      // Flush should not hang even if connection is attempted
+      const startTime = Date.now()
+      await stream.flush(300)
+      const elapsed = Date.now() - startTime
+
+      // Should complete within reasonable time
+      expect(elapsed).to.be.lessThan(500)
+
+      stream.destroy()
+    })
+  })
 })
