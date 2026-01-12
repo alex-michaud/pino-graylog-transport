@@ -1,30 +1,15 @@
 import type net from 'node:net'
 import os from 'node:os'
 import { Writable } from 'node:stream'
+import { FlushManager } from './flush-manager'
 import { formatGelfMessage } from './gelf-formatter'
 import { MessageQueue } from './message-queue'
 import { SocketConnectionManager } from './socket-connection'
+import type { ErrorHandler, PinoGraylogTransportOptions } from './types'
 import { UdpClient } from './udp-client'
 
-export type PinoGraylogTransportOptions = {
-  // Connection configuration
-  host?: string
-  port?: number
-  protocol?: 'tcp' | 'tls' | 'udp'
-  // Static metadata sent with every log message (e.g., tokens, environment, tags)
-  staticMeta?: Record<string, unknown>
-  // Log metadata
-  facility?: string
-  hostname?: string
-  // Callbacks
-  onError?: (error: Error, context?: Record<string, unknown>) => void
-  onReady?: (success: boolean, error?: Error) => void
-  // Queue configuration
-  maxQueueSize?: number
-  waitForDrain?: boolean // if true, wait for socket 'drain' before signaling write completion
-  dropWhenFull?: boolean // if true, drop new messages when internal queue is full; otherwise drop oldest
-  autoConnect?: boolean // if false, do not attempt to connect automatically in constructor (only applies to TCP/TLS; UDP always initializes since it's connectionless)
-}
+// Re-export types for convenience
+export type { PinoGraylogTransportOptions } from './types'
 
 /**
  * A Writable stream that sends logs to Graylog and exposes status methods.
@@ -34,12 +19,10 @@ export class PinoGraylogTransport extends Writable {
   private udpClient: UdpClient | null = null
   private connectionPromise: Promise<net.Socket> | null = null
   private messageQueue: MessageQueue
+  private flushManager: FlushManager
   private initializationAttempted = false
   private ready = false
-  private pendingWrites = 0
-  private flushCount = 0 // Reference count for concurrent flush operations
-  private closing = false // Flag to track when stream is being finalized
-  private drainResolvers: Array<() => void> = []
+  private closing = false
   private readonly socketManager = new SocketConnectionManager()
 
   private readonly host: string
@@ -49,10 +32,7 @@ export class PinoGraylogTransport extends Writable {
   private readonly hostname: string
   private readonly facility: string
   private readonly waitForDrain: boolean
-  private readonly handleError: (
-    error: Error,
-    context?: Record<string, unknown>,
-  ) => void
+  private readonly handleError: ErrorHandler
   private readonly onReady?: (success: boolean, error?: Error) => void
 
   constructor(opts: PinoGraylogTransportOptions) {
@@ -66,6 +46,14 @@ export class PinoGraylogTransport extends Writable {
     this.facility = opts.facility ?? this.hostname
     this.waitForDrain =
       opts.waitForDrain === undefined ? true : Boolean(opts.waitForDrain)
+
+    // Initialize error handler
+    this.handleError =
+      opts.onError ??
+      ((error: Error, context?: Record<string, unknown>) => {
+        console.error('Graylog transport error:', error.message, context || {})
+      })
+    this.onReady = opts.onReady
 
     // Initialize message queue
     this.messageQueue = new MessageQueue({
@@ -87,55 +75,38 @@ export class PinoGraylogTransport extends Writable {
       },
     })
 
-    this.handleError =
-      opts.onError ??
-      ((error: Error, context?: Record<string, unknown>) => {
-        console.error('Graylog transport error:', error.message, context || {})
-      })
-    this.onReady = opts.onReady
+    // Initialize flush manager
+    this.flushManager = new FlushManager({
+      getQueueSize: () => this.messageQueue.size(),
+      isConnected: () => this.isConnected(),
+      getSocket: () => this.socket,
+      getConnectionPromise: () => this.connectionPromise,
+      connect: () => this.connect(),
+    })
 
     // Initialize based on protocol
-    if (this.protocol === 'udp') {
-      // UDP is connectionless - always initialize regardless of autoConnect
-      // (autoConnect doesn't apply to UDP since there's no connection to establish)
-      this.udpClient = new UdpClient({
-        host: this.host,
-        port: this.port,
-        onError: this.handleError,
-      })
-      this.udpClient.connect()
-      this.ready = true
-      this.initializationAttempted = true
-      if (this.onReady) {
-        this.onReady(true)
-      }
-    } else if (opts.autoConnect !== false) {
-      // TCP/TLS: Establish initial connection unless explicitly disabled
-      this.connect()
-        .then(() => {
-          // Connection successful
-        })
-        .catch((err) => {
-          this.handleError(err, { reason: 'Initial Graylog connection failed' })
-          if (!this.initializationAttempted && this.onReady) {
-            this.initializationAttempted = true
-            this.onReady(false, err)
-          }
-          this.ready = false
-        })
-    }
+    this.initializeConnection(opts.autoConnect)
   }
 
   // --- Public status methods ---
 
+  /**
+   * Returns true if the transport is ready to send messages.
+   */
   isReady(): boolean {
     return this.ready
   }
 
+  /**
+   * Returns the number of messages currently queued.
+   */
   getQueueSize(): number {
     return this.messageQueue.size()
   }
 
+  /**
+   * Returns true if the transport is connected to Graylog.
+   */
   isConnected(): boolean {
     if (this.protocol === 'udp') {
       return this.udpClient?.isReady() ?? false
@@ -143,10 +114,16 @@ export class PinoGraylogTransport extends Writable {
     return this.socket !== null && !this.socket.destroyed
   }
 
+  /**
+   * Returns the number of messages that have been dropped.
+   */
   getDroppedMessageCount(): number {
     return this.messageQueue.getDroppedCount()
   }
 
+  /**
+   * Returns the maximum queue size.
+   */
   getMaxQueueSize(): number {
     return this.messageQueue.getMaxSize()
   }
@@ -180,7 +157,7 @@ export class PinoGraylogTransport extends Writable {
    *   `flush()` to actively wait for completion.
    */
   getPendingWriteCount(): number {
-    return this.pendingWrites + this.messageQueue.size()
+    return this.flushManager.getPendingWriteCount()
   }
 
   /**
@@ -195,108 +172,7 @@ export class PinoGraylogTransport extends Writable {
    * @param timeout Maximum time to wait in milliseconds (default: 5000)
    */
   async flush(timeout = 5000): Promise<void> {
-    // Increment flush reference count to enable write tracking
-    this.flushCount++
-
-    const decrementFlushCount = () => {
-      this.flushCount = Math.max(0, this.flushCount - 1)
-    }
-
-    // Wait for any pending connection
-    if (this.connectionPromise) {
-      try {
-        await this.connectionPromise
-      } catch {
-        // Connection failed, queue won't be flushed
-        decrementFlushCount()
-        return
-      }
-    }
-
-    // If queue has items but no socket, try to connect
-    if (this.messageQueue.size() > 0 && !this.isConnected()) {
-      try {
-        await this.connect()
-      } catch {
-        // Can't connect, messages will remain in queue
-        decrementFlushCount()
-        return
-      }
-    }
-
-    // If nothing pending, we're done
-    if (this.pendingWrites === 0 && this.messageQueue.size() === 0) {
-      // Wait for socket buffer to drain
-      if (this.socket && this.socket.writableLength > 0) {
-        const socket = this.socket
-        await new Promise<void>((resolve) => {
-          let resolved = false
-          const doResolve = () => {
-            if (resolved) return
-            resolved = true
-            clearTimeout(drainTimeout)
-            socket.removeListener('drain', doResolve)
-            socket.removeListener('error', doResolve)
-            socket.removeListener('close', doResolve)
-            decrementFlushCount()
-            resolve()
-          }
-          const drainTimeout = setTimeout(doResolve, timeout)
-          socket.once('drain', doResolve)
-          socket.once('error', doResolve)
-          socket.once('close', doResolve)
-        })
-        return
-      }
-      decrementFlushCount()
-      return
-    }
-
-    return new Promise<void>((resolve) => {
-      let resolved = false
-
-      const doResolve = () => {
-        if (resolved) return
-        resolved = true
-        decrementFlushCount()
-        clearTimeout(timeoutId)
-        const idx = this.drainResolvers.indexOf(doResolve)
-        if (idx !== -1) {
-          this.drainResolvers.splice(idx, 1)
-        }
-        resolve()
-      }
-
-      const timeoutId = setTimeout(doResolve, timeout)
-
-      this.drainResolvers.push(doResolve)
-      this.checkDrain()
-    })
-  }
-
-  /**
-   * Internal helper used by the flush mechanism.
-   *
-   * When there are no currently tracked in-flight writes (pendingWrites === 0)
-   * and the message queue is empty, this method resolves all pending flush
-   * promises by invoking every resolver stored in `drainResolvers`.
-   *
-   * In practice this is called after write callbacks decrement the
-   * `pendingWrites` counter or after queued messages are flushed. Each
-   * resolver corresponds to a `flush()` caller waiting for the transport to
-   * be fully drained; calling these resolvers allows those `flush()` Promises
-   * to complete.
-   *
-   * Note: this is an internal implementation detail and is not part of the
-   * public API; callers should use `flush()` to wait for completion.
-   */
-  private checkDrain(): void {
-    if (this.pendingWrites === 0 && this.messageQueue.size() === 0) {
-      const resolvers = this.drainResolvers.splice(0)
-      for (const resolve of resolvers) {
-        resolve()
-      }
-    }
+    return this.flushManager.flush(timeout)
   }
 
   // --- Writable implementation ---
@@ -330,6 +206,77 @@ export class PinoGraylogTransport extends Writable {
     }
   }
 
+  override _final(callback: (error?: Error | null) => void): void {
+    this.closing = true
+
+    const finishClose = () => {
+      if (this.socket && !this.socket.destroyed) {
+        this.socket.end()
+      }
+      callback()
+    }
+
+    // Keep flushing until no more pending writes or queue items
+    // This handles the case where new writes arrive during flush
+    const maxRetries = 10
+    const flushUntilDone = async (retries = 0): Promise<void> => {
+      await this.flush()
+
+      // Check if more writes came in during the flush
+      if (this.getPendingWriteCount() > 0 && retries < maxRetries) {
+        return flushUntilDone(retries + 1)
+      }
+    }
+
+    flushUntilDone().finally(finishClose)
+  }
+
+  override _destroy(
+    error: Error | null,
+    callback: (error?: Error | null) => void,
+  ): void {
+    if (this.socket && !this.socket.destroyed) {
+      this.socket.destroy()
+    }
+    if (this.udpClient) {
+      this.udpClient.close()
+    }
+    callback(error)
+  }
+
+  // --- Private methods ---
+
+  private initializeConnection(autoConnect?: boolean): void {
+    if (this.protocol === 'udp') {
+      // UDP is connectionless - always initialize regardless of autoConnect
+      this.udpClient = new UdpClient({
+        host: this.host,
+        port: this.port,
+        onError: this.handleError,
+      })
+      this.udpClient.connect()
+      this.ready = true
+      this.initializationAttempted = true
+      if (this.onReady) {
+        this.onReady(true)
+      }
+    } else if (autoConnect !== false) {
+      // TCP/TLS: Establish initial connection unless explicitly disabled
+      this.connect()
+        .then(() => {
+          // Connection successful
+        })
+        .catch((err) => {
+          this.handleError(err, { reason: 'Initial Graylog connection failed' })
+          if (!this.initializationAttempted && this.onReady) {
+            this.initializationAttempted = true
+            this.onReady(false, err)
+          }
+          this.ready = false
+        })
+    }
+  }
+
   private writeToSocket(
     socket: net.Socket,
     message: string,
@@ -338,11 +285,9 @@ export class PinoGraylogTransport extends Writable {
     let canContinue: boolean
 
     // Only track pending writes when flush is in progress (avoids overhead in normal operation)
-    if (this.flushCount > 0) {
-      this.pendingWrites++
+    if (this.flushManager.trackWrite()) {
       canContinue = socket.write(message, () => {
-        this.pendingWrites--
-        this.checkDrain()
+        this.flushManager.writeComplete()
       })
     } else {
       canContinue = socket.write(message)
@@ -369,49 +314,6 @@ export class PinoGraylogTransport extends Writable {
     })
     callback()
   }
-
-  override _final(callback: (error?: Error | null) => void): void {
-    this.closing = true
-
-    const finishClose = () => {
-      if (this.socket && !this.socket.destroyed) {
-        this.socket.end()
-      }
-      callback()
-    }
-
-    // Keep flushing until no more pending writes or queue items
-    // This handles the case where new writes arrive during flush
-    const maxRetries = 10
-    const flushUntilDone = async (retries = 0): Promise<void> => {
-      await this.flush()
-
-      // Check if more writes came in during the flush
-      if (
-        (this.pendingWrites > 0 || this.messageQueue.size() > 0) &&
-        retries < maxRetries
-      ) {
-        return flushUntilDone(retries + 1)
-      }
-    }
-
-    flushUntilDone().finally(finishClose)
-  }
-
-  override _destroy(
-    error: Error | null,
-    callback: (error?: Error | null) => void,
-  ): void {
-    if (this.socket && !this.socket.destroyed) {
-      this.socket.destroy()
-    }
-    if (this.udpClient) {
-      this.udpClient.close()
-    }
-    callback(error)
-  }
-
-  // --- Private methods ---
 
   private connect(): Promise<net.Socket> {
     if (this.socket && !this.socket.destroyed) {
@@ -440,20 +342,7 @@ export class PinoGraylogTransport extends Writable {
           }
 
           // Flush queued messages
-          const messagesToFlush = this.messageQueue.flush()
-          for (const msg of messagesToFlush) {
-            if (this.socket && !this.socket.destroyed) {
-              if (this.flushCount > 0) {
-                this.pendingWrites++
-                this.socket.write(msg, () => {
-                  this.pendingWrites--
-                  this.checkDrain()
-                })
-              } else {
-                this.socket.write(msg)
-              }
-            }
-          }
+          this.flushQueuedMessages()
 
           this.connectionPromise = null
           resolve(socket)
@@ -478,6 +367,21 @@ export class PinoGraylogTransport extends Writable {
     })
 
     return this.connectionPromise
+  }
+
+  private flushQueuedMessages(): void {
+    const messagesToFlush = this.messageQueue.flush()
+    for (const msg of messagesToFlush) {
+      if (this.socket && !this.socket.destroyed) {
+        if (this.flushManager.trackWrite()) {
+          this.socket.write(msg, () => {
+            this.flushManager.writeComplete()
+          })
+        } else {
+          this.socket.write(msg)
+        }
+      }
+    }
   }
 }
 
