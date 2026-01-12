@@ -38,6 +38,7 @@ export class PinoGraylogTransport extends Writable {
   private ready = false
   private pendingWrites = 0
   private flushCount = 0 // Reference count for concurrent flush operations
+  private closing = false // Flag to track when stream is being finalized
   private drainResolvers: Array<() => void> = []
   private readonly socketManager = new SocketConnectionManager()
 
@@ -152,6 +153,13 @@ export class PinoGraylogTransport extends Writable {
 
   getPendingWriteCount(): number {
     return this.pendingWrites + this.messageQueue.size()
+  }
+
+  /**
+   * Returns true if the stream is in the process of closing.
+   */
+  isClosing(): boolean {
+    return this.closing
   }
 
   /**
@@ -319,12 +327,31 @@ export class PinoGraylogTransport extends Writable {
   }
 
   override _final(callback: (error?: Error | null) => void): void {
-    this.flush().finally(() => {
+    this.closing = true
+
+    const finishClose = () => {
       if (this.socket && !this.socket.destroyed) {
         this.socket.end()
       }
       callback()
-    })
+    }
+
+    // Keep flushing until no more pending writes or queue items
+    // This handles the case where new writes arrive during flush
+    const maxRetries = 10
+    const flushUntilDone = async (retries = 0): Promise<void> => {
+      await this.flush()
+
+      // Check if more writes came in during the flush
+      if (
+        (this.pendingWrites > 0 || this.messageQueue.size() > 0) &&
+        retries < maxRetries
+      ) {
+        return flushUntilDone(retries + 1)
+      }
+    }
+
+    flushUntilDone().finally(finishClose)
   }
 
   override _destroy(
