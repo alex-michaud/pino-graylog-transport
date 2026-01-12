@@ -36,6 +36,9 @@ export class PinoGraylogTransport extends Writable {
   private messageQueue: MessageQueue
   private initializationAttempted = false
   private ready = false
+  private pendingWrites = 0
+  private flushRequested = false
+  private drainResolvers: Array<() => void> = []
   private readonly socketManager = new SocketConnectionManager()
 
   private readonly host: string
@@ -147,6 +150,88 @@ export class PinoGraylogTransport extends Writable {
     return this.messageQueue.getMaxSize()
   }
 
+  getPendingWriteCount(): number {
+    return this.pendingWrites + this.messageQueue.size()
+  }
+
+  /**
+   * Waits for all pending writes to complete and the queue to be flushed.
+   * @param timeout Maximum time to wait in milliseconds (default: 5000)
+   */
+  async flush(timeout = 5000): Promise<void> {
+    // Enable write tracking from this point forward
+    this.flushRequested = true
+
+    // Wait for any pending connection
+    if (this.connectionPromise) {
+      try {
+        await this.connectionPromise
+      } catch {
+        // Connection failed, queue won't be flushed
+        this.flushRequested = false
+        return
+      }
+    }
+
+    // If queue has items but no socket, try to connect
+    if (this.messageQueue.size() > 0 && !this.isConnected()) {
+      try {
+        await this.connect()
+      } catch {
+        // Can't connect, messages will remain in queue
+        this.flushRequested = false
+        return
+      }
+    }
+
+    // If nothing pending, we're done
+    if (this.pendingWrites === 0 && this.messageQueue.size() === 0) {
+      // Wait for socket buffer to drain
+      if (this.socket && this.socket.writableLength > 0) {
+        const socket = this.socket
+        await new Promise<void>((resolve) => {
+          socket.once('drain', () => {
+            this.flushRequested = false
+            resolve()
+          })
+        })
+        return
+      }
+      this.flushRequested = false
+      return
+    }
+
+    return new Promise<void>((resolve) => {
+      let resolved = false
+
+      const doResolve = () => {
+        if (resolved) return
+        resolved = true
+        this.flushRequested = false
+        clearTimeout(timeoutId)
+        const idx = this.drainResolvers.indexOf(doResolve)
+        if (idx !== -1) {
+          this.drainResolvers.splice(idx, 1)
+        }
+        resolve()
+      }
+
+      const timeoutId = setTimeout(doResolve, timeout)
+
+      this.drainResolvers.push(doResolve)
+      this.checkDrain()
+    })
+  }
+
+  private checkDrain(): void {
+    if (this.pendingWrites === 0 && this.messageQueue.size() === 0) {
+      const resolvers = this.drainResolvers.splice(0)
+      for (const resolve of resolvers) {
+        resolve()
+      }
+    }
+  }
+
   // --- Writable implementation ---
 
   override _write(
@@ -183,12 +268,27 @@ export class PinoGraylogTransport extends Writable {
     message: string,
     callback: (error?: Error | null) => void,
   ): void {
-    const success = socket.write(message)
-    if (this.waitForDrain && !success) {
-      socket.once('drain', callback)
+    // Only track pending writes when flush is requested (avoids overhead in normal operation)
+    if (this.flushRequested) {
+      this.pendingWrites++
+      socket.write(message, () => {
+        this.pendingWrites--
+        this.checkDrain()
+      })
     } else {
-      callback()
+      socket.write(message)
     }
+
+    // Call callback immediately (fire-and-forget) unless waitForDrain is enabled
+    if (this.waitForDrain) {
+      // Check if buffer is full and we need to wait
+      const canWrite = socket.writableLength < socket.writableHighWaterMark
+      if (!canWrite) {
+        socket.once('drain', callback)
+        return
+      }
+    }
+    callback()
   }
 
   private queueMessage(
@@ -205,10 +305,12 @@ export class PinoGraylogTransport extends Writable {
   }
 
   override _final(callback: (error?: Error | null) => void): void {
-    if (this.socket && !this.socket.destroyed) {
-      this.socket.end()
-    }
-    callback()
+    this.flush().finally(() => {
+      if (this.socket && !this.socket.destroyed) {
+        this.socket.end()
+      }
+      callback()
+    })
   }
 
   override _destroy(
@@ -254,7 +356,15 @@ export class PinoGraylogTransport extends Writable {
           const messagesToFlush = this.messageQueue.flush()
           for (const msg of messagesToFlush) {
             if (this.socket && !this.socket.destroyed) {
-              this.socket.write(msg)
+              if (this.flushRequested) {
+                this.pendingWrites++
+                this.socket.write(msg, () => {
+                  this.pendingWrites--
+                  this.checkDrain()
+                })
+              } else {
+                this.socket.write(msg)
+              }
             }
           }
 
