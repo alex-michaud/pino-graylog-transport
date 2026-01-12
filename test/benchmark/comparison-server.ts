@@ -2,7 +2,7 @@
 import http from 'node:http'
 import pino from 'pino'
 import winston from 'winston'
-import transport from '../../lib/index'
+import transport from '../../dist/index'
 
 /**
  * Comparison server for benchmarking logging performance

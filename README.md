@@ -465,6 +465,26 @@ The test runs three scenarios in parallel:
 
 Compare the `*_duration` metrics to see the logging overhead for each library.
 
+### Latest Benchmark Results (January 2026)
+
+Tests performed on a local development machine using k6 (10s duration, 50 VUs).
+
+#### Node.js Runtime
+| Library | Requests/sec | Relative Performance |
+|---------|--------------|----------------------|
+| Baseline (No logs) | ~2,502 | 100% |
+| **Pino Graylog** | **~1,355** | **54%** |
+| Winston (log2gelf) | ~1,183 | 47% |
+
+#### Bun Runtime 🚀
+| Library | Requests/sec | Relative Performance |
+|---------|--------------|----------------------|
+| Baseline (No logs) | ~2,472 | 100% |
+| **Pino Graylog** | **~2,005** | **81%** |
+| Winston (log2gelf) | ~1,209 | 49% |
+
+> **Performance Tip:** Using the **Bun** runtime with `@alex-michaud/pino-graylog-transport` yields a massive performance boost, maintaining over **80% of the baseline throughput** (compared to ~54% on Node.js) while outperforming Winston by a significant margin.
+
 ## License
 
 MIT — see the [LICENSE](./LICENSE) file for details.
