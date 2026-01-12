@@ -194,10 +194,21 @@ export class PinoGraylogTransport extends Writable {
       if (this.socket && this.socket.writableLength > 0) {
         const socket = this.socket
         await new Promise<void>((resolve) => {
-          socket.once('drain', () => {
+          let resolved = false
+          const doResolve = () => {
+            if (resolved) return
+            resolved = true
+            clearTimeout(drainTimeout)
+            socket.removeListener('drain', doResolve)
+            socket.removeListener('error', doResolve)
+            socket.removeListener('close', doResolve)
             decrementFlushCount()
             resolve()
-          })
+          }
+          const drainTimeout = setTimeout(doResolve, timeout)
+          socket.once('drain', doResolve)
+          socket.once('error', doResolve)
+          socket.once('close', doResolve)
         })
         return
       }
