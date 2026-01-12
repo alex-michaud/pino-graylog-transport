@@ -338,12 +338,14 @@ export class PinoGraylogTransport extends Writable {
     }
 
     this.connectionPromise = new Promise<net.Socket>((resolve, reject) => {
+      let cleanupFn: (() => void) | null = null
+
       const { socket, cleanup } = this.socketManager.createConnection({
         host: this.host,
         port: this.port,
         protocol: this.protocol,
         onConnect: () => {
-          cleanup()
+          if (cleanupFn) cleanupFn()
           this.socket = socket
           this.ready = true
 
@@ -372,20 +374,22 @@ export class PinoGraylogTransport extends Writable {
           resolve(socket)
         },
         onError: (error, context) => {
-          cleanup()
+          if (cleanupFn) cleanupFn()
           this.handleError(error, context)
           this.socket = null
           this.connectionPromise = null
           reject(error)
         },
         onClose: () => {
-          cleanup()
+          if (cleanupFn) cleanupFn()
           this.socket = null
           if (this.connectionPromise) {
             this.connectionPromise = null
           }
         },
       })
+
+      cleanupFn = cleanup
     })
 
     return this.connectionPromise

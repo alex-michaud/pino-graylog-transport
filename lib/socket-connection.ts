@@ -28,17 +28,25 @@ export class SocketConnectionManager {
     socket: net.Socket
     cleanup: () => void
   } {
-    const connectionTimeout = setTimeout(() => {
+    let socket: net.Socket
+    let connectionTimeout: NodeJS.Timeout
+
+    const cleanup = () => {
+      if (connectionTimeout) {
+        clearTimeout(connectionTimeout)
+      }
+    }
+
+    connectionTimeout = setTimeout(() => {
       const timeoutError = new Error('Graylog connection timeout')
       try {
-        socket.destroy()
+        if (socket) {
+          socket.destroy()
+        }
       } catch (_e) {}
       opts.onError(timeoutError, { reason: 'Connection timeout' })
     }, 10000)
 
-    const cleanup = () => clearTimeout(connectionTimeout)
-
-    let socket: net.Socket
     if (opts.protocol === 'tcp') {
       socket = this.createTcpConnection(opts, connectionTimeout)
     } else {
