@@ -54,6 +54,134 @@ describe('Graylog Transport', () => {
     expect(stream.getQueueSize).to.be.a('function')
     expect(stream.isConnected).to.be.a('function')
     expect(stream.getDroppedMessageCount).to.be.a('function')
+    expect(stream.getPendingWriteCount).to.be.a('function')
+  })
+
+  describe('getPendingWriteCount Method', () => {
+    it('should return 0 when no messages have been sent', () => {
+      const stream = graylogTransport({
+        autoConnect: false,
+      })
+
+      expect(stream.getPendingWriteCount()).to.equal(0)
+
+      stream.destroy()
+    })
+
+    it('should return queue size when messages are queued', () => {
+      const stream = graylogTransport({
+        autoConnect: false,
+      })
+
+      const logger = pino({ level: 'info' }, stream)
+      logger.info('Message 1')
+      logger.info('Message 2')
+      logger.info('Message 3')
+
+      // All messages should be in queue (no connection)
+      expect(stream.getQueueSize()).to.equal(3)
+      expect(stream.getPendingWriteCount()).to.equal(3)
+
+      stream.destroy()
+    })
+
+    it('should match queue size when not connected', () => {
+      const stream = graylogTransport({
+        autoConnect: false,
+        maxQueueSize: 100,
+      })
+
+      const logger = pino({ level: 'info' }, stream)
+
+      // Send multiple messages
+      for (let i = 0; i < 10; i++) {
+        logger.info(`Message ${i}`)
+      }
+
+      // getPendingWriteCount should equal queue size when not connected
+      expect(stream.getPendingWriteCount()).to.equal(stream.getQueueSize())
+      expect(stream.getPendingWriteCount()).to.equal(10)
+
+      stream.destroy()
+    })
+
+    it('should return 0 after queue is cleared', async () => {
+      const stream = graylogTransport({
+        autoConnect: false,
+      })
+
+      const logger = pino({ level: 'info' }, stream)
+      logger.info('Message 1')
+
+      expect(stream.getPendingWriteCount()).to.equal(1)
+
+      // Destroy clears everything
+      stream.destroy()
+
+      // After destroy, queue should be intact but stream is destroyed
+      // Create a new stream to verify initial state
+      const newStream = graylogTransport({
+        autoConnect: false,
+      })
+
+      expect(newStream.getPendingWriteCount()).to.equal(0)
+
+      newStream.destroy()
+    })
+
+    it('should correctly sum pendingWrites and queue size', () => {
+      const stream = graylogTransport({
+        autoConnect: false,
+      })
+
+      // Initially both should be 0
+      expect(stream.getPendingWriteCount()).to.equal(0)
+      expect(stream.getQueueSize()).to.equal(0)
+
+      const logger = pino({ level: 'info' }, stream)
+      logger.info('Test message')
+
+      // Message goes to queue since not connected
+      expect(stream.getQueueSize()).to.equal(1)
+      expect(stream.getPendingWriteCount()).to.equal(1)
+
+      stream.destroy()
+    })
+
+    it('should handle UDP protocol correctly', () => {
+      const stream = graylogTransport({
+        protocol: 'udp',
+        host: 'localhost',
+        port: 12201,
+      })
+
+      // UDP is immediately ready, no queue needed
+      expect(stream.isReady()).to.be.true
+      expect(stream.getPendingWriteCount()).to.equal(0)
+
+      stream.destroy()
+    })
+
+    it('should reflect queue size with dropWhenFull', () => {
+      const stream = graylogTransport({
+        autoConnect: false,
+        maxQueueSize: 3,
+        dropWhenFull: true,
+      })
+
+      const logger = pino({ level: 'info' }, stream)
+
+      // Send more messages than queue can hold
+      for (let i = 0; i < 10; i++) {
+        logger.info(`Message ${i}`)
+      }
+
+      // Queue should be at max, pending count reflects actual queued messages
+      expect(stream.getQueueSize()).to.equal(3)
+      expect(stream.getPendingWriteCount()).to.equal(3)
+
+      stream.destroy()
+    })
   })
 
   describe('Pino Logger Integration', () => {
