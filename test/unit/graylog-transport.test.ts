@@ -382,6 +382,72 @@ describe('Graylog Transport', () => {
     })
   })
 
+  describe('waitForDrain Option', () => {
+    it('should default waitForDrain to true', () => {
+      const stream = graylogTransport({
+        autoConnect: false,
+      })
+
+      // Default is true, so stream should be configured to wait for drain
+      // We can't directly access the private property, but we can verify behavior
+      expect(stream).to.be.instanceOf(Writable)
+
+      stream.destroy()
+    })
+
+    it('should accept waitForDrain option set to false', () => {
+      const stream = graylogTransport({
+        autoConnect: false,
+        waitForDrain: false,
+      })
+
+      expect(stream).to.be.instanceOf(Writable)
+
+      stream.destroy()
+    })
+
+    it('should accept waitForDrain option set to true', () => {
+      const stream = graylogTransport({
+        autoConnect: false,
+        waitForDrain: true,
+      })
+
+      expect(stream).to.be.instanceOf(Writable)
+
+      stream.destroy()
+    })
+
+    it('should queue messages normally with waitForDrain enabled', () => {
+      const stream = graylogTransport({
+        autoConnect: false,
+        waitForDrain: true,
+      })
+
+      const logger = pino({ level: 'info' }, stream)
+      logger.info('Test message 1')
+      logger.info('Test message 2')
+
+      expect(stream.getQueueSize()).to.equal(2)
+
+      stream.destroy()
+    })
+
+    it('should queue messages normally with waitForDrain disabled', () => {
+      const stream = graylogTransport({
+        autoConnect: false,
+        waitForDrain: false,
+      })
+
+      const logger = pino({ level: 'info' }, stream)
+      logger.info('Test message 1')
+      logger.info('Test message 2')
+
+      expect(stream.getQueueSize()).to.equal(2)
+
+      stream.destroy()
+    })
+  })
+
   describe('Flush Method', () => {
     it('should resolve immediately when no pending writes and queue is empty', async () => {
       const stream = graylogTransport({

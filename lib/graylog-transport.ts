@@ -283,25 +283,24 @@ export class PinoGraylogTransport extends Writable {
     message: string,
     callback: (error?: Error | null) => void,
   ): void {
+    let canContinue: boolean
+
     // Only track pending writes when flush is in progress (avoids overhead in normal operation)
     if (this.flushCount > 0) {
       this.pendingWrites++
-      socket.write(message, () => {
+      canContinue = socket.write(message, () => {
         this.pendingWrites--
         this.checkDrain()
       })
     } else {
-      socket.write(message)
+      canContinue = socket.write(message)
     }
 
     // Call callback immediately (fire-and-forget) unless waitForDrain is enabled
-    if (this.waitForDrain) {
-      // Check if buffer is full and we need to wait
-      const canWrite = socket.writableLength < socket.writableHighWaterMark
-      if (!canWrite) {
-        socket.once('drain', callback)
-        return
-      }
+    // When socket.write() returns false, the internal buffer is full and we should wait for drain
+    if (this.waitForDrain && !canContinue) {
+      socket.once('drain', () => callback())
+      return
     }
     callback()
   }
