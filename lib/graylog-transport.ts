@@ -151,6 +151,34 @@ export class PinoGraylogTransport extends Writable {
     return this.messageQueue.getMaxSize()
   }
 
+  /**
+   * Returns the number of outstanding write operations that are either currently
+   * in-flight or queued to be written.
+   *
+   * This value is computed as:
+   *   pendingWrites + messageQueue.size()
+   *
+   * - `pendingWrites` counts socket writes that have been issued and are being
+   *   tracked because a flush is in progress (i.e. one or more callers have
+   *   requested a `flush()`); these represent write operations that have been
+   *   handed to the socket but have not yet completed.
+   * - `messageQueue.size()` counts messages that are still enqueued and have
+   *   not yet been sent to the socket (for example, when the transport is not
+   *   connected).
+   *
+   * When to call:
+   * - Call this to observe how much work remains before the transport is
+   *   fully flushed (useful for monitoring or graceful shutdown logic).
+   * - Note that the number is a point-in-time snapshot and may change
+   *   immediately after calling (concurrent writes or flushes can increase or
+   *   decrease the returned value).
+   *
+   * Guarantees and caveats:
+   * - The method is inexpensive and safe to call from application code.
+   * - Because the value is not atomic with respect to async operations, it
+   *   should be used for informational/decision-making purposes only; use
+   *   `flush()` to actively wait for completion.
+   */
   getPendingWriteCount(): number {
     return this.pendingWrites + this.messageQueue.size()
   }
