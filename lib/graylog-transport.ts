@@ -37,7 +37,7 @@ export class PinoGraylogTransport extends Writable {
   private initializationAttempted = false
   private ready = false
   private pendingWrites = 0
-  private flushRequested = false
+  private flushCount = 0 // Reference count for concurrent flush operations
   private drainResolvers: Array<() => void> = []
   private readonly socketManager = new SocketConnectionManager()
 
@@ -159,8 +159,12 @@ export class PinoGraylogTransport extends Writable {
    * @param timeout Maximum time to wait in milliseconds (default: 5000)
    */
   async flush(timeout = 5000): Promise<void> {
-    // Enable write tracking from this point forward
-    this.flushRequested = true
+    // Increment flush reference count to enable write tracking
+    this.flushCount++
+
+    const decrementFlushCount = () => {
+      this.flushCount = Math.max(0, this.flushCount - 1)
+    }
 
     // Wait for any pending connection
     if (this.connectionPromise) {
@@ -168,7 +172,7 @@ export class PinoGraylogTransport extends Writable {
         await this.connectionPromise
       } catch {
         // Connection failed, queue won't be flushed
-        this.flushRequested = false
+        decrementFlushCount()
         return
       }
     }
@@ -179,7 +183,7 @@ export class PinoGraylogTransport extends Writable {
         await this.connect()
       } catch {
         // Can't connect, messages will remain in queue
-        this.flushRequested = false
+        decrementFlushCount()
         return
       }
     }
@@ -191,13 +195,13 @@ export class PinoGraylogTransport extends Writable {
         const socket = this.socket
         await new Promise<void>((resolve) => {
           socket.once('drain', () => {
-            this.flushRequested = false
+            decrementFlushCount()
             resolve()
           })
         })
         return
       }
-      this.flushRequested = false
+      decrementFlushCount()
       return
     }
 
@@ -207,7 +211,7 @@ export class PinoGraylogTransport extends Writable {
       const doResolve = () => {
         if (resolved) return
         resolved = true
-        this.flushRequested = false
+        decrementFlushCount()
         clearTimeout(timeoutId)
         const idx = this.drainResolvers.indexOf(doResolve)
         if (idx !== -1) {
@@ -268,8 +272,8 @@ export class PinoGraylogTransport extends Writable {
     message: string,
     callback: (error?: Error | null) => void,
   ): void {
-    // Only track pending writes when flush is requested (avoids overhead in normal operation)
-    if (this.flushRequested) {
+    // Only track pending writes when flush is in progress (avoids overhead in normal operation)
+    if (this.flushCount > 0) {
       this.pendingWrites++
       socket.write(message, () => {
         this.pendingWrites--
@@ -358,7 +362,7 @@ export class PinoGraylogTransport extends Writable {
           const messagesToFlush = this.messageQueue.flush()
           for (const msg of messagesToFlush) {
             if (this.socket && !this.socket.destroyed) {
-              if (this.flushRequested) {
+              if (this.flushCount > 0) {
                 this.pendingWrites++
                 this.socket.write(msg, () => {
                   this.pendingWrites--

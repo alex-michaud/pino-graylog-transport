@@ -475,7 +475,37 @@ describe('Graylog Transport', () => {
       stream.destroy()
     })
 
-    it('should reset flushRequested flag after flush completes', async () => {
+    it('should handle staggered concurrent flush calls without race conditions', async () => {
+      const stream = graylogTransport({
+        autoConnect: false,
+      })
+
+      const logger = pino({ level: 'info' }, stream)
+      logger.info('Test message')
+
+      // Start first flush
+      const flush1 = stream.flush(300)
+
+      // Start second flush after a small delay (simulates real-world staggered calls)
+      await new Promise((resolve) => setTimeout(resolve, 10))
+      const flush2 = stream.flush(300)
+
+      // Start third flush after another delay
+      await new Promise((resolve) => setTimeout(resolve, 10))
+      const flush3 = stream.flush(300)
+
+      // All should resolve independently without interfering with each other
+      const results = await Promise.allSettled([flush1, flush2, flush3])
+
+      // All promises should be fulfilled
+      for (const result of results) {
+        expect(result.status).to.equal('fulfilled')
+      }
+
+      stream.destroy()
+    })
+
+    it('should reset flush state after flush completes', async () => {
       const stream = graylogTransport({
         autoConnect: false,
       })
