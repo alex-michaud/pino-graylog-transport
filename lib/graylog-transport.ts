@@ -274,6 +274,22 @@ export class PinoGraylogTransport extends Writable {
     })
   }
 
+  /**
+   * Internal helper used by the flush mechanism.
+   *
+   * When there are no currently tracked in-flight writes (pendingWrites === 0)
+   * and the message queue is empty, this method resolves all pending flush
+   * promises by invoking every resolver stored in `drainResolvers`.
+   *
+   * In practice this is called after write callbacks decrement the
+   * `pendingWrites` counter or after queued messages are flushed. Each
+   * resolver corresponds to a `flush()` caller waiting for the transport to
+   * be fully drained; calling these resolvers allows those `flush()` Promises
+   * to complete.
+   *
+   * Note: this is an internal implementation detail and is not part of the
+   * public API; callers should use `flush()` to wait for completion.
+   */
   private checkDrain(): void {
     if (this.pendingWrites === 0 && this.messageQueue.size() === 0) {
       const resolvers = this.drainResolvers.splice(0)
