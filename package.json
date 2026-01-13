@@ -39,18 +39,7 @@
     "node": ">=22.0.0"
   },
   "files": [
-    "dist/index.js",
-    "dist/index.d.ts",
-    "dist/graylog-transport.js",
-    "dist/graylog-transport.d.ts",
-    "dist/gelf-formatter.js",
-    "dist/gelf-formatter.d.ts",
-    "dist/message-queue.js",
-    "dist/message-queue.d.ts",
-    "dist/socket-connection.js",
-    "dist/socket-connection.d.ts",
-    "dist/udp-client.js",
-    "dist/udp-client.d.ts",
+    "dist",
     "README.md",
     "LICENSE"
   ],
