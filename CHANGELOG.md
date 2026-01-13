@@ -1,3 +1,9 @@
+## [1.2.1](https://github.com/alex-michaud/pino-graylog-transport/compare/v1.2.0...v1.2.1) (2026-01-13)
+
+### Bug Fixes
+
+* simplify file references in package.json by including dist directory ([f1ed305](https://github.com/alex-michaud/pino-graylog-transport/commit/f1ed305a7a4af98eec6e0b6b4efa8f8fb1ba5bea))
+
 ## [1.2.0](https://github.com/alex-michaud/pino-graylog-transport/compare/v1.1.2...v1.2.0) (2026-01-12)
 
 ### Features
